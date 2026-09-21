@@ -1,7 +1,11 @@
 """Local workflow state machine; no network scanning or external submission."""
 
 from datetime import date, datetime, timedelta, timezone
+import os
 from pathlib import Path
+import re
+import shlex
+import sys
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
@@ -172,9 +176,22 @@ class Workflow:
         if finding["status"] != "confirmed":
             raise ValueError("Finding must be confirmed before requesting a patch")
         runner = Path(__file__).resolve().parents[2] / "run_bughunt.py"
-        command = (f'python "{runner}"' if runner.exists() else "python -m bughunt") + f' --db "{self.store.path.resolve()}"'
+        argv = [sys.executable, str(runner)] if runner.exists() else [sys.executable, "-m", "bughunt"]
+        argv += ["--db", str(self.store.path.resolve()), "finding", "patch", finding["id"],
+                 "--status", "verified", "--reference", "PATH_OR_URL_TO_PATCH",
+                 "--verification", "ACTUAL_TEST_COMMAND_AND_OUTPUT"]
+        placeholders = {"PATH_OR_URL_TO_PATCH", "ACTUAL_TEST_COMMAND_AND_OUTPUT"}
+        if os.name == "nt":
+            def quote(value):
+                return value if value not in placeholders and re.fullmatch(r"[A-Za-z0-9_./:-]+", value) else "'" + value.replace("'", "''") + "'"
+            command = "& " + " ".join(quote(value) for value in argv)
+            command_shell = "powershell"
+        else:
+            command = " ".join("'" + value + "'" if value in placeholders else shlex.quote(value) for value in argv)
+            command_shell = "posix"
         return {"schema_version": 1, "generated_at": stamp(self.clock()), "assignee": "Astra",
                 "dispatched": False,
+                "record_patch": {"argv": argv, "command": command, "shell": command_shell},
                 "delivery": "Generated locally only; give this brief to the patch author yourself. No agent has been started.",
                 "task": "Write the code fix for this confirmed issue (CVE/bug); Astra authors the patch.",
                 "finding": {k: finding.get(k) for k in ("id", "title", "type", "severity", "cvss_score",
@@ -185,9 +202,8 @@ class Workflow:
                                  "Add a regression test that fails before and passes after the fix.",
                                  "Do not test outside the listed scope or against excluded assets.",
                                  "Recheck current program permission before testing; this brief is a snapshot, not ongoing authorization.",
-                                 f'Record a tested patch with `{command} finding patch {finding["id"]} '
-                                 '--status verified --reference "PATH_OR_URL_TO_PATCH" '
-                                 '--verification "ACTUAL_TEST_COMMAND_AND_OUTPUT"`; replace both placeholders with real evidence.']}
+                                 f'Record a tested patch with `{command}` in {command_shell}; replace both placeholders with real evidence. '
+                                 'For automation, use record_patch.argv with shell=False instead of parsing the displayed command.']}
 
     def record_brief(self, finding_id):
         with self.store.transaction():

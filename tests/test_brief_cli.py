@@ -2,9 +2,13 @@ from contextlib import redirect_stderr, redirect_stdout
 from datetime import timedelta
 import io
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from bughunt.cli import main
 from bughunt.storage import Store
@@ -53,6 +57,19 @@ class BriefCliTests(unittest.TestCase):
         self.assertEqual(brief["finding"]["id"], finding_id)
         self.assertEqual(brief["finding"]["title"], "Fixture \u2014 issue")
         self.assertFalse(brief["dispatched"])
+        self.assertEqual(sum(row["action"] == "patch.briefed" for row in self.store.snapshot()["audit"]), 1)
+
+    def test_stdout_delivery_failures_do_not_record_success(self):
+        finding_id = self.finding()
+        for method in ("write", "flush"):
+            with self.subTest(method=method):
+                stream = io.StringIO()
+                errors = io.StringIO()
+                with patch.object(stream, method, side_effect=OSError("Synthetic output failure")):
+                    with redirect_stdout(stream), redirect_stderr(errors):
+                        code = main(["--db", str(self.db), "finding", "brief", finding_id])
+                self.assertEqual(code, 2)
+                self.assertFalse(any(row["action"] == "patch.briefed" for row in self.store.snapshot()["audit"]))
 
     def test_file_is_json_with_newline_and_preserves_existing_evidence(self):
         finding_id = self.finding()
@@ -67,6 +84,29 @@ class BriefCliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(output, "")
         self.assertEqual(target.read_bytes(), original)
+        self.assertEqual(sum(row["action"] == "patch.briefed" for row in self.store.snapshot()["audit"]), 1)
+
+    def test_generated_command_updates_the_literal_custom_database_from_another_directory(self):
+        shell = shutil.which("pwsh") or shutil.which("powershell") if os.name == "nt" else shutil.which("sh")
+        if not shell:
+            self.skipTest("No supported shell installed")
+        finding_id = self.finding()
+        db = self.root / "literal $budget 'quoted'" / "custom.db"
+        custom = Store(db)
+        try:
+            with custom.transaction():
+                custom.save("programs", self.store.get("programs", "test"))
+                custom.save("findings", self.store.get("findings", finding_id))
+            brief = Workflow(custom).patch_brief(finding_id)
+            command = brief["requirements"][-1].split("`")[1]
+            command = command.replace("PATH_OR_URL_TO_PATCH", "fixture.patch").replace("ACTUAL_TEST_COMMAND_AND_OUTPUT", "Synthetic test evidence")
+            arguments = [shell, "-NoProfile", "-NonInteractive", "-Command", command] if os.name == "nt" else [shell, "-c", command]
+            result = subprocess.run(arguments, cwd=self.root, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(custom.get("findings", finding_id)["patch_status"], "verified")
+            self.assertEqual(self.store.get("findings", finding_id)["patch_status"], "not_started")
+        finally:
+            custom.close()
 
     def test_invalid_finding_does_not_create_output(self):
         unknown = "finding-unknown"

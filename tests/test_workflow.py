@@ -45,8 +45,10 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(brief["program"][key], program[key])
         command = brief["requirements"][-1]
         self.assertIn(f'finding patch {finding["id"]} --status verified', command)
-        self.assertIn('--reference "PATH_OR_URL_TO_PATCH"', command)
-        self.assertIn('--verification "ACTUAL_TEST_COMMAND_AND_OUTPUT"', command)
+        self.assertEqual(brief["record_patch"]["argv"][-4:],
+                         ["--reference", "PATH_OR_URL_TO_PATCH", "--verification", "ACTUAL_TEST_COMMAND_AND_OUTPUT"])
+        argv = brief["record_patch"]["argv"]
+        self.assertEqual(argv[argv.index("--db") + 1], str(self.store.path.resolve()))
         self.assertNotIn("|", command)
         self.now += timedelta(hours=25)
         with self.assertRaises(ValueError):

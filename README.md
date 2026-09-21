@@ -149,6 +149,11 @@ python run_bughunt.py submission export SUBMISSION_ID --output reports/submissio
 `finding brief FINDING_ID [--output brief.json]` writes the patch task for
 **Astra**, who writes the code fixes for CVEs and bugs; BugHunt itself never
 generates patches. It requires a confirmed finding and current scope verification.
+The brief includes the active Python executable and exact database path in its
+patch-recording command. `record_patch.shell` identifies PowerShell or POSIX shell;
+automated consumers should replace the two evidence placeholders in
+`record_patch.argv` and run that argument list with `shell=False`. Delivery is
+audited after the output file closes, or after stdout is written and flushed.
 
 Findings support an optional `--cvss` score from 0–10. Patch references and test
 evidence are recorded as supplied; BugHunt does not execute or validate the patch.

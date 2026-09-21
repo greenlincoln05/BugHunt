@@ -184,7 +184,6 @@ def dispatch(args, store):
                     handle.write("\n")
                 app.record_brief(args.id)
                 return {"output": str(args.output.resolve()), "assignee": "Astra"}
-            app.record_brief(args.id)
             return brief
         return app.record_patch(args.id, patch_status=args.status, reference=args.reference, verification=args.verification)
     if args.command == "submission":
@@ -240,7 +239,10 @@ def main(argv=None):
         store = Store(path)
         result = dispatch(args, store)
         # ASCII escapes preserve arbitrary program titles across Windows consoles.
-        print(json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False))
+        print(json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False), flush=True)
+        if args.command == "finding" and args.action == "brief" and args.output is None:
+            # Only acknowledge delivery once serialization, writing, and flushing succeeded.
+            Workflow(store).record_brief(args.id)
         if args.command == "worker" and args.action in {"once", "run"} and result.get("outcome") == "paused":
             return 4
         return 3 if args.command == "scope" and not result["allowed"] else 0
