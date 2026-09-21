@@ -119,6 +119,10 @@ python run_bughunt.py submission draft FINDING_ID
 python run_bughunt.py submission export SUBMISSION_ID --output reports/submission.json
 ```
 
+`finding brief FINDING_ID [--output brief.json]` writes the patch task for
+**Astra**, who writes the code fixes for CVEs and bugs; BugHunt itself never
+generates patches. It requires a confirmed finding and current scope verification.
+
 Findings support an optional `--cvss` score from 0–10. Patch references and test
 evidence are recorded as supplied; BugHunt does not execute or validate the patch.
 For issues without an available source patch, use `--status not_applicable

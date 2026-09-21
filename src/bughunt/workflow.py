@@ -162,6 +162,24 @@ class Workflow:
             self._audit("patch.updated", "findings", finding, status=patch_status)
         return finding
 
+    def patch_brief(self, finding_id):
+        """Self-contained hand-off for Astra, which writes the code fix. Nothing is executed."""
+        with self.store.transaction():
+            finding = self.store.get("findings", finding_id)
+            program, _ = self._require_scope(finding["program_id"], finding["target"])
+            if finding["status"] != "confirmed":
+                raise ValueError("Finding must be confirmed before requesting a patch")
+            self._audit("patch.briefed", "findings", finding)
+        return {"schema_version": 1, "generated_at": stamp(self.clock()), "assignee": "Astra",
+                "task": "Write the code fix for this confirmed issue (CVE/bug); Astra authors the patch.",
+                "finding": {k: finding.get(k) for k in ("id", "title", "type", "severity", "cvss_score",
+                            "target", "reproduction", "impact", "confirmation_evidence")},
+                "program": {k: program.get(k) for k in ("id", "name", "platform", "program_url", "scope", "excluded_scope")},
+                "requirements": ["Change only code the program makes available and permits you to modify.",
+                                 "Add a regression test that fails before and passes after the fix.",
+                                 "Do not test outside the listed scope or against excluded assets.",
+                                 "Record the patch with `finding patch --status ready|verified` and real test output."]}
+
     def draft_submission(self, finding_id):
         with self.store.transaction():
             finding = self.store.get("findings", finding_id)

@@ -56,6 +56,9 @@ def build_parser():
     item = finding.add_parser("confirm")
     item.add_argument("id")
     item.add_argument("--evidence", required=True)
+    item = finding.add_parser("brief", help="Write a patch task for Astra (who writes the CVE/bug fix)")
+    item.add_argument("id")
+    item.add_argument("--output", type=Path)
     item = finding.add_parser("patch")
     item.add_argument("id")
     item.add_argument("--status", choices=["not_started", "in_progress", "ready", "verified", "not_applicable"], required=True)
@@ -126,6 +129,16 @@ def dispatch(args, store):
                                    impact=args.impact, cvss_score=args.cvss_score)
         if args.action == "confirm":
             return app.confirm_finding(args.id, args.evidence)
+        if args.action == "brief":
+            brief = app.patch_brief(args.id)
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                with args.output.open("x", encoding="utf-8") as handle:
+                    json.dump(brief, handle, indent=2, ensure_ascii=False, allow_nan=False)
+                    handle.write("
+")
+                return {"output": str(args.output.resolve()), "assignee": "Astra"}
+            return brief
         return app.record_patch(args.id, patch_status=args.status, reference=args.reference, verification=args.verification)
     if args.command == "submission":
         if args.action == "list":

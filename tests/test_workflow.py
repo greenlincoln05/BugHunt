@@ -30,6 +30,18 @@ class WorkflowTests(unittest.TestCase):
         return self.app.add_finding("test", target="http://127.0.0.1:8000/api", title="Fixture",
             vulnerability_type="validation", severity="low", reproduction="Fixture steps", impact="Fixture impact")
 
+    def test_patch_brief_requires_confirmation_and_assigns_astra(self):
+        finding = self.finding()
+        with self.assertRaises(ValueError):
+            self.app.patch_brief(finding["id"])
+        self.app.confirm_finding(finding["id"], "Fixture evidence")
+        brief = self.app.patch_brief(finding["id"])
+        self.assertEqual(brief["assignee"], "Astra")
+        self.assertEqual(brief["finding"]["reproduction"], "Fixture steps")
+        self.now += timedelta(hours=25)
+        with self.assertRaises(ValueError):
+            self.app.patch_brief(finding["id"])
+
     def draft(self):
         finding = self.finding()
         self.app.confirm_finding(finding["id"], "Fixture evidence")
