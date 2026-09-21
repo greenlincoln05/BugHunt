@@ -24,6 +24,7 @@ def build_parser():
     model.add_parser("check", help="Read model metadata; does not prove Trusted Access approval")
     item = commands.add_parser("progress", help="Show first-dollar receipt evidence and next actions")
     item.add_argument("--out", type=Path, help="Also write first_dollar.json and first_dollar.md")
+    item.add_argument("--source-db", type=Path, help="Read a live database from another checkout without modifying it; cannot combine with --db")
     worker = commands.add_parser("worker", help="Unattended read-only opportunity discovery").add_subparsers(dest="action", required=True)
     worker.add_parser("status")
     worker.add_parser("stop")
@@ -137,8 +138,11 @@ def dispatch(args, store):
         return model_readiness(check_access=args.action == "check")
     if args.command == "progress":
         from .progress import build_progress, export_progress
-        document = build_progress(store.snapshot(), credentials_present=bool(
+        from .storage import read_snapshot
+        snapshot = read_snapshot(args.source_db) if args.source_db else store.snapshot()
+        document = build_progress(snapshot, credentials_present=bool(
             os.environ.get("HACKERONE_USERNAME") and os.environ.get("HACKERONE_API_TOKEN")))
+        document["source_database"] = str((args.source_db or store.path).resolve())
         if args.out:
             document["files"] = export_progress(document, args.out)
         return document
@@ -274,7 +278,11 @@ def main(argv=None):
     path = args.db or Path(".bughunt/demo.db" if args.command == "demo" else ".bughunt/bughunt.db")
     store = None
     try:
-        store = Store(path)
+        external_snapshot = args.command == "progress" and args.source_db is not None
+        if external_snapshot and args.db is not None:
+            raise ValueError("Use either progress --source-db or --db, not both")
+        if not external_snapshot:
+            store = Store(path)
         result = dispatch(args, store)
         # ASCII escapes preserve arbitrary program titles across Windows consoles.
         print(json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False), flush=True)

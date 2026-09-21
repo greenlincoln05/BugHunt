@@ -40,15 +40,16 @@ def build_progress(snapshot, *, now=None, credentials_present=False):
     jobs = snapshot.get("jobs", [])
     job = next((row for row in jobs if row.get("id") == "hackerone-discovery"), {})
     last_sync = _time(job.get("last_success_at"))
+    recent_sync = last_sync is not None and now - timedelta(hours=24) <= last_sync <= now
     if demo:
         action("demo_database", None, "Use the production database; this database contains fictitious activity.")
-    if not credentials_present:
+    if not credentials_present and (not recent_sync or job.get("paused_reason") == "authentication"):
         action("credentials", None, "Make the existing HackerOne credentials available to this process; run setup to check presence without printing secrets.")
     if job.get("paused_reason"):
         action("discovery_paused", job.get("id"), "Resolve " + job["paused_reason"] + "; then run worker resume with a resolution note.")
     elif job.get("stop_requested"):
         action("discovery_stopped", job.get("id"), "Restart the discovery worker when ready.")
-    elif not last_sync or now - last_sync > timedelta(hours=24):
+    elif not recent_sync:
         action("discovery_stale", job.get("id"), "Run worker once or start the worker to complete a fresh discovery snapshot; honor its backoff.")
     if not programs:
         action("select_program", None, "Review opportunity list and opportunity dossier; import one current program policy with its scope and advertised bounty terms.")
@@ -157,7 +158,9 @@ def build_progress(snapshot, *, now=None, credentials_present=False):
                    "findings": len(findings), "submissions": len(submissions), "payments": len(payments)},
         "discovery": {"status": job.get("status", "not_started"), "last_complete_sync_at": job.get("last_success_at"),
                       "next_run_at": job.get("next_run_at"), "paused_reason": job.get("paused_reason"),
-                      "credentials_visible": credentials_present},
+                      "credentials_visible": credentials_present,
+                      "recent_successful_sync": recent_sync,
+                      "credential_note": "Credentials are process-local. A successful saved sync does not expose its worker token to this process."},
         "next_actions": actions,
     }
 

@@ -10,6 +10,35 @@ SCHEMA_VERSION = 2
 TABLES = frozenset({"programs", "findings", "submissions", "payments", "jobs", "opportunities"})
 
 
+def read_snapshot(path):
+    """Read one consistent snapshot of an existing database without migrating it."""
+    uri = Path(path).resolve().as_uri() + "?mode=ro"
+    connection = sqlite3.connect(uri, uri=True, timeout=10, isolation_level=None)
+    try:
+        connection.execute("PRAGMA query_only = ON")
+        connection.execute("BEGIN DEFERRED")
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if version not in (1, SCHEMA_VERSION):
+            raise ValueError(f"Unsupported database schema version: {version}")
+        snapshot = {}
+        for table in sorted(TABLES):
+            if version == 1 and table in {"jobs", "opportunities"}:
+                snapshot[table] = []
+            else:
+                snapshot[table] = [json.loads(row[0]) for row in connection.execute(
+                    f"SELECT data FROM {table} ORDER BY rowid"
+                )]
+        snapshot["audit"] = [dict(json.loads(row[1]), id=row[0]) for row in connection.execute(
+            "SELECT id, data FROM audit ORDER BY id"
+        )]
+        return snapshot
+    finally:
+        try:
+            connection.rollback()
+        finally:
+            connection.close()
+
+
 class Store:
     def __init__(self, path):
         self.path = Path(path)

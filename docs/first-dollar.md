@@ -20,6 +20,20 @@ rejection review, pending triage, and receipt evidence. It does not mutate recor
 or contact any service. Credential presence refers only to the current process;
 another terminal or running worker can have different credentials.
 
+If a worker runs from another checkout, read that database directly without
+creating, migrating, or updating it:
+
+```powershell
+python run_bughunt.py progress --source-db C:\Users\Lincoln\BugHunt\.bughunt\bughunt.db --out reports/progress
+```
+
+`--source-db` opens a consistent, read-only SQLite snapshot and cannot be combined
+with `--db`. A recent successful sync means the reporter can use saved discovery
+even when its own process has no API token. This does not prove the worker is
+still alive or grant the reporter credentials for new API calls. The launcher
+restores its parent shell's environment; prompted credentials remain in the
+child worker's memory until that process exits.
+
 The generated `first_dollar.json` and `first_dollar.md` stay local and are ignored
 by Git. The USD 1 threshold counts received installments with unique platform
 receipt references and valid dates, tied to accepted submissions with official
@@ -112,10 +126,19 @@ CLI error path. Other database faults remain errors rather than retry loops.
 - The prior Codex task recorded three cybersecurity screening failures and an
   earlier weekly usage-limit failure. The user added credits and identified an
   attempted Daybreak use without prior access. They are applying for access.
-- The user says HackerOne credentials are configured locally. This task's process
-  and Windows user/machine environment do not expose the expected keys. Their
-  storage method/location still needs to be identified without revealing values.
-  Do not repeatedly attempt unauthenticated calls.
+- The user identified the live runtime checkout as `C:/Users/Lincoln/BugHunt`.
+  Python worker PID 82868 was verified running on 2026-09-21. Its production
+  database is `.bughunt/bughunt.db` under that runtime checkout, not the development
+  checkout. At 03:25:20 UTC it completed a snapshot of 223 candidates; there were
+  zero programs/findings/submissions/payments. Recheck current state on each run.
+  Use `progress --source-db` for that live database and keep generated reports in
+  the development workspace. Do not start a duplicate worker or copy its token
+  out of process memory. New standalone API requests still need locally supplied
+  credentials in their invoking process.
+- The live-database integration passes all 168 tests, including read-only file
+  preservation and a consistent snapshot while another connection commits.
+- Daybreak access remains pending while the user arranges security keys. Do not
+  repeatedly request credentials or attempt that model while approval is pending.
 - Ignored `.bughunt/research/status.json` records Zabbix selected for an owned
   local sandbox, zero revenue, and no confirmed findings. This is historical
   context, not current authorization or a confirmed bug.

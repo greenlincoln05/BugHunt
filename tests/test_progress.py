@@ -42,6 +42,24 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual([row["kind"] for row in result["next_actions"]],
                          ["credentials", "discovery_stale", "select_program"])
 
+    def test_recent_worker_sync_does_not_require_token_in_reporter_process(self):
+        result = build_progress(snapshot(), now=NOW, credentials_present=False)
+        self.assertFalse(result["discovery"]["credentials_visible"])
+        self.assertTrue(result["discovery"]["recent_successful_sync"])
+        self.assertNotIn("credentials", [row["kind"] for row in result["next_actions"]])
+        data = snapshot()
+        data["jobs"][0]["paused_reason"] = "authentication"
+        result = build_progress(data, now=NOW, credentials_present=False)
+        self.assertIn("credentials", [row["kind"] for row in result["next_actions"]])
+
+    def test_future_or_stale_sync_does_not_establish_current_discovery(self):
+        for date in ("2026-09-22T00:00:00Z", "2026-09-19T00:00:00Z"):
+            data = snapshot()
+            data["jobs"][0]["last_success_at"] = date
+            result = build_progress(data, now=NOW, credentials_present=False)
+            self.assertFalse(result["discovery"]["recent_successful_sync"])
+            self.assertIn("discovery_stale", [row["kind"] for row in result["next_actions"]])
+
     def test_threshold_uses_decimal_receipts_and_never_claims_platform_verification(self):
         data = snapshot("0.99")
         self.assertFalse(self.progress(data)["milestone"]["receipt_recorded"])
@@ -132,6 +150,34 @@ class ProgressTests(unittest.TestCase):
             result = json.loads(output.getvalue())
             self.assertTrue(result["discovery"]["credentials_visible"])
             self.assertTrue((Path(directory) / "first_dollar.md").exists())
+
+    def test_progress_reads_external_database_without_initializing_a_store(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "live.sqlite"
+            store = Store(source)
+            try:
+                with store.transaction():
+                    store.save("opportunities", {"id": "h1-1", "name": "Live candidate"})
+            finally:
+                store.close()
+            before = source.read_bytes()
+            output = io.StringIO()
+            with patch("bughunt.cli.Store", side_effect=AssertionError("Read-only progress must not open a writable Store")):
+                with redirect_stdout(output):
+                    self.assertEqual(main(["progress", "--source-db", str(source)]), 0)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["counts"]["opportunities"], 1)
+            self.assertEqual(result["source_database"], str(source.resolve()))
+            self.assertEqual(source.read_bytes(), before)
+
+    def test_progress_rejects_ambiguous_database_selection_without_creating_files(self):
+        from contextlib import redirect_stderr
+        with tempfile.TemporaryDirectory() as directory:
+            source, destination = Path(directory) / "source.sqlite", Path(directory) / "destination.sqlite"
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["--db", str(destination), "progress", "--source-db", str(source)]), 2)
+            self.assertFalse(source.exists())
+            self.assertFalse(destination.exists())
 
 
 class DossierCliTests(unittest.TestCase):
