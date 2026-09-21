@@ -122,12 +122,13 @@ def _submission_report(submissions: list[dict], findings: dict, programs: dict, 
             _date(submission.get("updated_at")), _date(submission.get("expected_payment_date")),
             submission.get("attempts", 0), submission.get("rejection_reason"),
             "Yes" if submission.get("retry_reviewed") else "No",
+            submission.get("paused_reason"), _date(submission.get("retry_after")),
         ])
     report = f"# Submission status\n\nGenerated at {_iso(now)}. All recorded submission states are included.\n\n"
     report += _table([
         "Local ID", "Finding", "Program", "Platform", "Platform ID", "Status", "Created (UTC)",
         "Submitted (UTC)", "Accepted (UTC)", "Updated (UTC)", "Expected payment date",
-        "Attempts", "Rejection reason", "Retry reviewed",
+        "Attempts", "Rejection reason", "Retry reviewed", "Paused reason", "Retry after (UTC)",
     ], rows)
     if not rows:
         report += "\n\nNo submissions recorded."

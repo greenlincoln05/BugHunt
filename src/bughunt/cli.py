@@ -19,6 +19,11 @@ def build_parser():
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Initialize the local database")
     commands.add_parser("setup", help="Show account/credential readiness without revealing secrets")
+    model = commands.add_parser("model", help="Check explicit OpenAI model configuration without inference").add_subparsers(dest="action", required=True)
+    model.add_parser("status", help="Local configuration presence only; no network request")
+    model.add_parser("check", help="Read model metadata; does not prove Trusted Access approval")
+    item = commands.add_parser("progress", help="Show first-dollar receipt evidence and next actions")
+    item.add_argument("--out", type=Path, help="Also write first_dollar.json and first_dollar.md")
     worker = commands.add_parser("worker", help="Unattended read-only opportunity discovery").add_subparsers(dest="action", required=True)
     worker.add_parser("status")
     worker.add_parser("stop")
@@ -33,6 +38,10 @@ def build_parser():
             item.add_argument("--max-cycles", type=int, default=0)
     opportunity = commands.add_parser("opportunity", help="Inspect discovered candidates, not authorized targets").add_subparsers(dest="action", required=True)
     opportunity.add_parser("list")
+    item = opportunity.add_parser("dossier", help="Fetch official scope metadata for a discovered candidate")
+    item.add_argument("id", help="Discovered opportunity ID, for example h1-123")
+    item.add_argument("--max-pages", type=int, default=3)
+    item.add_argument("--output", type=Path, required=True)
     item = opportunity.add_parser("export")
     item.add_argument("--out", type=Path, default=Path("reports/discovery"))
     program = commands.add_parser("program", help="Import, verify, and shortlist program policies").add_subparsers(dest="action", required=True)
@@ -109,6 +118,8 @@ def build_parser():
     item = payment.add_parser("receive")
     item.add_argument("id")
     item.add_argument("--note", required=True)
+    item.add_argument("--receipt-reference", help="Unique platform receipt reference (user attestation)")
+    item.add_argument("--received-at", help="Actual timezone-aware receipt timestamp; defaults to now")
     item = commands.add_parser("reports")
     item.add_argument("--out", type=Path, default=Path("reports"))
     commands.add_parser("audit", help="Read the timestamped activity log")
@@ -121,6 +132,16 @@ def dispatch(args, store):
     app = Workflow(store)
     if args.command == "init":
         return {"database": str(store.path.resolve()), "schema_version": SCHEMA_VERSION}
+    if args.command == "model":
+        from .model_access import model_readiness
+        return model_readiness(check_access=args.action == "check")
+    if args.command == "progress":
+        from .progress import build_progress, export_progress
+        document = build_progress(store.snapshot(), credentials_present=bool(
+            os.environ.get("HACKERONE_USERNAME") and os.environ.get("HACKERONE_API_TOKEN")))
+        if args.out:
+            document["files"] = export_progress(document, args.out)
+        return document
     if args.command == "setup":
         return {"hackerone": {"integration": "read-only program discovery", "create_account": "https://hackerone.com/users/sign_up",
                 "token_instructions": "https://docs.hackerone.com/en/articles/8410331-api-token",
@@ -147,6 +168,23 @@ def dispatch(args, store):
     if args.command == "opportunity":
         if args.action == "list":
             return store.list("opportunities")
+        if args.action == "dossier":
+            from .dossier import fetch_program_dossier
+            from .hackerone import HackerOneClient
+            candidate = store.get("opportunities", args.id)
+            if args.output.exists():
+                raise ValueError("Dossier output already exists; choose a new path")
+            document = fetch_program_dossier(HackerOneClient.from_environment(), candidate["handle"], max_pages=args.max_pages)
+            document["opportunity"] = candidate
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            with args.output.open("x", encoding="utf-8") as handle:
+                json.dump(document, handle, ensure_ascii=False, indent=2, allow_nan=False)
+                handle.write("\n")
+            with store.transaction():
+                store.audit("opportunity.dossier_exported", "opportunities", args.id, stamp(app.clock()),
+                            {"output": str(args.output.resolve()), "complete": document["completeness"]["complete"]})
+            return {"output": str(args.output.resolve()), "complete": document["completeness"]["complete"],
+                    "review_needed": True, "testing_authorized": False}
         from .worker import DiscoveryWorker
         return {"files": DiscoveryWorker(store).export(args.out)}
     if args.command == "program":
@@ -217,7 +255,7 @@ def dispatch(args, store):
             return store.list("payments")
         if args.action == "add":
             return app.add_payment(args.submission_id, args.amount, args.currency, args.expected_date)
-        return app.receive_payment(args.id, args.note)
+        return app.receive_payment(args.id, args.note, receipt_reference=args.receipt_reference, received_at=args.received_at)
     if args.command == "reports":
         paths = generate_reports(store.snapshot(), args.out)
         with store.transaction():
@@ -244,6 +282,8 @@ def main(argv=None):
             # Only acknowledge delivery once serialization, writing, and flushing succeeded.
             Workflow(store).record_brief(args.id)
         if args.command == "worker" and args.action in {"once", "run"} and result.get("outcome") == "paused":
+            return 4
+        if args.command == "model" and args.action == "check" and result.get("model_retrievable") is not True:
             return 4
         return 3 if args.command == "scope" and not result["allowed"] else 0
     except KeyboardInterrupt:

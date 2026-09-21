@@ -37,6 +37,22 @@ def money(value):
     return format(amount, ".2f")
 
 
+def receipt_timestamp(value, label):
+    """Validate receipt chronology without silently assuming a timezone."""
+    try:
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str) and "T" in value:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        else:
+            raise ValueError
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, TypeError, OverflowError) as exc:
+        raise ValueError(f"{label} must be a timezone-aware ISO 8601 timestamp") from exc
+
+
 class Workflow:
     def __init__(self, store, clock=utc_now):
         self.store = store
@@ -339,19 +355,49 @@ class Workflow:
             self._audit("payment.expected", "payments", payment)
         return payment
 
-    def receive_payment(self, payment_id, note):
+    def receive_payment(self, payment_id, note, *, receipt_reference=None, received_at=None):
+        """Record a user's receipt attestation, never platform verification.
+
+        A platform receipt reference permits idempotent retries and prevents the
+        same receipt from being counted through different local payment rows.
+        Legacy note-only receipts remain available but carry weaker evidence.
+        """
         note = required(note, "Payment receipt evidence")
+        if receipt_reference is not None:
+            receipt_reference = required(receipt_reference, "Payment receipt reference")
+        receipt_date = receipt_timestamp(received_at, "Receipt date") if received_at is not None else None
         with self.store.transaction():
             payment = self.store.get("payments", payment_id)
-            if payment["status"] != "pending":
-                raise ValueError("Payment has already been received")
-            payment.update(status="received", received_at=stamp(self.clock()), receipt_note=note)
-            self.store.save("payments", payment)
             submission = self.store.get("submissions", payment["submission_id"])
+            if payment["status"] != "pending":
+                if (payment["status"] == "received" and receipt_reference is not None
+                        and payment.get("receipt_reference") == receipt_reference
+                        and payment.get("receipt_note") == note
+                        and (receipt_date is None or stamp(receipt_date) == payment.get("received_at"))):
+                    return payment
+                raise ValueError("Payment has already been received")
+            now = receipt_timestamp(self.clock(), "Current time")
+            receipt_date = receipt_date or now
+            if receipt_date > now:
+                raise ValueError("Receipt date must not be in the future")
+            submitted_at = receipt_timestamp(submission.get("submitted_at"), "Submission date")
+            if receipt_date < submitted_at:
+                raise ValueError("Receipt date must not precede the submission")
+            if receipt_reference is not None:
+                submissions = {record["id"]: record for record in self.store.list("submissions")}
+                for other in self.store.list("payments"):
+                    if (other["id"] != payment_id and other.get("receipt_reference") == receipt_reference
+                            and submissions[other["submission_id"]]["platform"] == submission["platform"]):
+                        raise ValueError("Receipt reference is already recorded for another payment on this platform")
+            payment.update(status="received", received_at=stamp(receipt_date), receipt_note=note,
+                           receipt_reference=receipt_reference, recorded_at=stamp(now),
+                           evidence_kind="user_attested_reference" if receipt_reference is not None else "manual_note")
+            self.store.save("payments", payment)
             pending = any(p["submission_id"] == submission["id"] and p["status"] == "pending" for p in self.store.list("payments"))
-            submission.update(status="accepted" if pending else "paid", updated_at=stamp(self.clock()))
+            submission.update(status="accepted" if pending else "paid", updated_at=stamp(now))
             self.store.save("submissions", submission)
-            self._audit("payment.received", "payments", payment, note=note)
+            self._audit("payment.received", "payments", payment, note=note, receipt_reference=receipt_reference,
+                        received_at=payment["received_at"], evidence_kind=payment["evidence_kind"])
         return payment
 
     def submission_bundle(self, submission_id):

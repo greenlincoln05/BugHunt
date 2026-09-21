@@ -13,10 +13,22 @@ from .workflow import stamp, utc_now, required
 
 JOB_ID = "hackerone-discovery"
 MAX_BACKOFF_SECONDS = 86400
+DATABASE_RETRY_ATTEMPTS = 3
+DATABASE_RETRY_SECONDS = 5
 
 
 def parsed(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00")) if value else None
+
+
+def _database_contention(error):
+    # Extended SQLite result codes retain the primary code in their low byte.
+    code = getattr(error, "sqlite_errorcode", None)
+    return isinstance(code, int) and (code & 0xff) in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+
+
+class _DatabaseContention(Exception):
+    """The bounded local database retry budget was exhausted."""
 
 
 class DiscoveryWorker:
@@ -116,7 +128,11 @@ class DiscoveryWorker:
             return self._failure(owner, AdapterError("invalid_response", "Unexpected connector failure; review and resume."), interval_seconds)
         try:
             outcome = self._apply(owner, batch, interval_seconds)
-        except (sqlite3.Error, OSError):
+        except sqlite3.Error as error:
+            if not _database_contention(error):
+                raise
+            return self._failure(owner, AdapterError("transient", "Could not save the fetched batch; will retry."), interval_seconds)
+        except OSError:
             return self._failure(owner, AdapterError("transient", "Could not save the fetched batch; will retry."), interval_seconds)
         except Exception:
             return self._failure(owner, AdapterError("invalid_response", "Unexpected error processing a fetched batch; review and resume."), interval_seconds)
@@ -126,6 +142,8 @@ class DiscoveryWorker:
         try:
             paths = self.export(output_dir)
         except (OSError, sqlite3.Error) as error:
+            if isinstance(error, sqlite3.Error) and not _database_contention(error):
+                raise
             # Reports are best effort; a locked file must not kill the unattended worker.
             paths = []
             self._note_export_failure(error)
@@ -177,8 +195,9 @@ class DiscoveryWorker:
             with self.store.transaction():
                 self.store.audit("discovery.export_failed", "jobs", JOB_ID, stamp(self.clock()),
                                  {"error": type(error).__name__})
-        except sqlite3.Error:
-            pass
+        except sqlite3.Error as failure:
+            if not _database_contention(failure):
+                raise
 
     @staticmethod
     def _public(job):
@@ -218,21 +237,42 @@ class DiscoveryWorker:
             sleep=time.sleep, notify=print):
         if type(max_cycles) is not int or max_cycles < 0:
             raise ValueError("max_cycles must be a nonnegative integer (0 means until stopped)")
-        self.start()
-        cycles = 0
-        last = None
-        while True:
-            result = self.cycle(max_pages=max_pages, interval_seconds=interval_seconds, output_dir=output_dir)
-            cycles += 1
-            if result["outcome"] not in {"waiting", "busy"}:
-                notify(json.dumps(result, ensure_ascii=True))
-            last = result
-            if result["outcome"] in {"paused", "stopped", "lease_lost"} or (max_cycles and cycles >= max_cycles):
-                return last
-            state = result["state"]
-            due = parsed(state.get("lease_until") if result["outcome"] == "busy" else state.get("next_run_at"))
-            due = due or self.clock() + timedelta(seconds=interval_seconds)
-            while self.clock() < due:
-                if self._job()["stop_requested"]:
-                    return {"outcome": "stopped", "state": self.status()}
-                sleep(min(5, max(0, (due - self.clock()).total_seconds())))
+
+        def retry_database(operation):
+            for attempt in range(DATABASE_RETRY_ATTEMPTS):
+                try:
+                    return operation()
+                except sqlite3.Error as error:
+                    if not _database_contention(error):
+                        raise
+                    if attempt + 1 == DATABASE_RETRY_ATTEMPTS:
+                        raise _DatabaseContention from None
+                    sleep(DATABASE_RETRY_SECONDS)
+
+        try:
+            retry_database(self.start)
+            cycles = 0
+            while True:
+                result = retry_database(lambda: self.cycle(
+                    max_pages=max_pages, interval_seconds=interval_seconds, output_dir=output_dir))
+                cycles += 1
+                if result["outcome"] not in {"waiting", "busy"}:
+                    notify(json.dumps(result, ensure_ascii=True))
+                if result["outcome"] in {"paused", "stopped", "lease_lost"} or (max_cycles and cycles >= max_cycles):
+                    return result
+                state = result["state"]
+                due = parsed(state.get("lease_until") if result["outcome"] == "busy" else state.get("next_run_at"))
+                due = due or self.clock() + timedelta(seconds=interval_seconds)
+                while self.clock() < due:
+                    if retry_database(self._job)["stop_requested"]:
+                        return {"outcome": "stopped", "state": retry_database(self.status)}
+                    sleep(min(5, max(0, (due - self.clock()).total_seconds())))
+        except _DatabaseContention:
+            # The database may still be unavailable: do not claim this attention
+            # state was persisted, or try another write while handling the failure.
+            result = {"outcome": "paused", "persisted": False, "state": {
+                "id": JOB_ID, "status": "paused", "paused_reason": "database_contention",
+                "last_error": "Database remained busy or locked after three attempts. Close the competing database operation, check worker status, then restart.",
+            }}
+            notify(json.dumps(result, ensure_ascii=True))
+            return result

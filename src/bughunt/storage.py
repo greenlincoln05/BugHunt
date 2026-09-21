@@ -62,11 +62,12 @@ class Store:
         self.connection.execute("BEGIN IMMEDIATE")
         try:
             yield
+            # A failed COMMIT (for example SQLITE_BUSY) leaves SQLite's
+            # transaction open. Roll it back before callers attempt recovery.
+            self.connection.commit()
         except BaseException:
             self.connection.rollback()
             raise
-        else:
-            self.connection.commit()
 
     @staticmethod
     def _table(table):

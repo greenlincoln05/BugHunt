@@ -16,6 +16,9 @@ catalog is intended for selected startup or medium-company programs.
 | `demo.py` | Isolated, clearly fictitious end-to-end demonstration |
 | `hackerone.py` | Read-only official API adapter, credentials, pagination, sanitized errors |
 | `worker.py` | Durable discovery batches, leases, backoff, snapshot publication, stop/resume |
+| `dossier.py` | Bounded official structured-scope and reward-exclusion retrieval for review |
+| `progress.py` | Next-action queue and local receipt-backed first-dollar progress, excluding demos |
+| `model_access.py` | Secret-safe explicit model configuration and metadata access checks, without inference |
 
 Records store structured JSON in four related workflow tables and two discovery
 tables (`jobs` and `opportunities`). SQLite foreign keys protect
@@ -46,7 +49,8 @@ dates. Reports describe local records rather than live platform truth.
 
 1. **Discovery adapters:** HackerOne program discovery is implemented, with raw
    policy text, a completed-snapshot timestamp, bounded pagination, and unknown
-   payouts preserved. Other platforms, detailed asset/exclusion synchronization,
+   payouts preserved. Selected candidates can export detailed scope and reward
+   exclusion dossiers for review. Other platforms, automatic synchronization,
    and company-size metadata remain to be added. A discovery snapshot never
    becomes a verified test authorization automatically.
 2. **Reconnaissance executor:** controlled, non-destructive checks on specifically
@@ -58,8 +62,9 @@ dates. Reports describe local records rather than live platform truth.
    A user-entered `verified` record is currently an attestation, not test execution.
 4. **Official submission adapters:** platform-specific authentication providers,
    idempotency, supported report fields and attachments, acknowledgment/status
-   synchronization, and handling restrictions on automation. No credentials are
-   accepted by this release; do not place account secrets in catalogs or reports.
+   synchronization, and handling restrictions on automation. Submission adapters
+   are not implemented. Discovery and model preflight read environment credentials;
+   do not place account secrets in catalogs or reports.
 5. **Worker and scheduling:** the discovery worker has durable cursors, complete
    snapshot publication, single active-batch leases, stop/resume, and persisted
    backoff. Submission execution, external notifications, target downtime handling,

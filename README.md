@@ -229,6 +229,9 @@ are logged when the database remains writable.
 
 ## Next implementation stages
 
+The [first-dollar workflow](docs/first-dollar.md) covers `progress`, official
+scope dossiers, duplicate-resistant receipt recording, and current access needs.
+
 See [architecture.md](docs/architecture.md) for module boundaries and the remaining
 platform discovery, reconnaissance, patch-development, scheduling, and account
 integration work. The user-supplied Markdown is a product specification, not an

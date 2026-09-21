@@ -133,6 +133,99 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(result["outcome"], "stopped")
         self.assertEqual(self.client.list_programs.call_count, 1)
 
+    def database_locker(self):
+        self.store.connection.execute("PRAGMA busy_timeout = 0")
+        locker = sqlite3.connect(self.store.path, isolation_level=None)
+        self.addCleanup(locker.close)
+        return locker
+
+    def test_run_retries_start_after_a_competing_writer_releases(self):
+        locker = self.database_locker()
+        locker.execute("BEGIN IMMEDIATE")
+        delays = []
+
+        def sleep(seconds):
+            delays.append(seconds)
+            locker.rollback()
+            self.advance(seconds)
+
+        result = self.worker.run(max_cycles=1, output_dir=self.root / "out", sleep=sleep, notify=lambda _: None)
+        self.assertEqual(result["outcome"], "complete")
+        self.assertEqual(delays, [5])
+        self.assertEqual(self.client.list_programs.call_count, 1)
+        self.assertEqual(len(self.store.list("opportunities")), 1)
+
+    def test_run_retries_cycle_before_fetching_when_database_is_locked(self):
+        locker = self.database_locker()
+        start = self.worker.start
+
+        def start_then_lock():
+            result = start()
+            locker.execute("BEGIN IMMEDIATE")
+            return result
+
+        def sleep(seconds):
+            self.client.list_programs.assert_not_called()
+            locker.rollback()
+            self.advance(seconds)
+
+        with patch.object(self.worker, "start", side_effect=start_then_lock):
+            result = self.worker.run(max_cycles=1, output_dir=self.root / "out", sleep=sleep, notify=lambda _: None)
+        self.assertEqual(result["outcome"], "complete")
+        self.assertEqual(self.client.list_programs.call_count, 1)
+
+    def test_run_recovers_a_locked_idle_stop_check(self):
+        locker = self.database_locker()
+        delays = []
+
+        def notify(_):
+            locker.execute("BEGIN EXCLUSIVE")
+
+        def sleep(seconds):
+            delays.append(seconds)
+            locker.rollback()
+            self.worker.stop()
+            self.advance(seconds)
+
+        result = self.worker.run(output_dir=self.root / "out", sleep=sleep, notify=notify)
+        self.assertEqual(result["outcome"], "stopped")
+        self.assertEqual(delays, [5])
+        self.assertEqual(self.client.list_programs.call_count, 1)
+
+    def test_run_exits_with_unpersisted_attention_after_three_lock_failures(self):
+        locker = self.database_locker()
+        locker.execute("BEGIN IMMEDIATE")
+        delays = []
+        messages = []
+        with patch.object(self.worker, "start", wraps=self.worker.start) as start:
+            result = self.worker.run(output_dir=self.root / "out", sleep=delays.append, notify=messages.append)
+        self.assertEqual(start.call_count, 3)
+        self.assertEqual(delays, [5, 5])
+        self.assertEqual(result["outcome"], "paused")
+        self.assertEqual(result["state"]["paused_reason"], "database_contention")
+        self.assertIs(result["persisted"], False)
+        self.assertEqual(json.loads(messages[0]), result)
+        self.factory.assert_not_called()
+        locker.rollback()
+        self.assertEqual(self.store.list("jobs"), [])
+
+    def test_run_does_not_retry_other_sqlite_failures(self):
+        failure = sqlite3.OperationalError("no such table: jobs")
+        failure.sqlite_errorcode = sqlite3.SQLITE_ERROR
+        with patch.object(self.worker, "start", side_effect=failure) as start:
+            with self.assertRaises(sqlite3.OperationalError):
+                self.worker.run(output_dir=self.root / "out", notify=lambda _: None,
+                                sleep=lambda _: self.fail("A non-contention SQLite error must not retry"))
+        self.assertEqual(start.call_count, 1)
+        self.factory.assert_not_called()
+
+    def test_cycle_does_not_turn_corrupt_database_into_retryable_backoff(self):
+        failure = sqlite3.DatabaseError("database disk image is malformed")
+        failure.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+        with patch.object(self.worker, "_publish", side_effect=failure):
+            with self.assertRaises(sqlite3.DatabaseError):
+                self.cycle()
+
     def test_pagination_cycles_pause_instead_of_looping_across_restarts(self):
         url = "https://api.hackerone.com/v1/hackers/programs?page%5Bnumber%5D=2"
         self.client.list_programs.return_value = batch([candidate()], url)

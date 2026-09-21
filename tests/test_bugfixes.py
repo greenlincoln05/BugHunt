@@ -70,7 +70,9 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(job["paused_reason"], "invalid_response")
 
     def test_database_error_while_saving_backs_off_and_releases_lease(self):
-        with patch.object(DiscoveryWorker, "_publish", side_effect=sqlite3.OperationalError("locked")):
+        failure = sqlite3.OperationalError("database is locked")
+        failure.sqlite_errorcode = sqlite3.SQLITE_BUSY
+        with patch.object(DiscoveryWorker, "_publish", side_effect=failure):
             result = self.cycle()
         self.assertEqual(result["outcome"], "backoff")
         self.assertIsNotNone(self.store.get("jobs", "hackerone-discovery")["next_run_at"])

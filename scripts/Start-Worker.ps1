@@ -13,6 +13,15 @@ New-Item -ItemType Directory -Path $bughuntLogDir -Force | Out-Null
 $bughuntPriorIdentifier = $env:HACKERONE_USERNAME
 $bughuntPriorToken = $env:HACKERONE_API_TOKEN
 $bughuntTokenPointer = [IntPtr]::Zero
+function Write-BugHuntLogTail([string]$LogName, [int]$Lines) {
+    Get-Content -LiteralPath (Join-Path $bughuntLogDir $LogName) -Tail $Lines -ErrorAction SilentlyContinue | ForEach-Object {
+        $bughuntSafeLogLine = [string]$_
+        foreach ($bughuntCredential in @($env:HACKERONE_API_TOKEN, $env:HACKERONE_USERNAME)) {
+            if ($bughuntCredential) { $bughuntSafeLogLine = $bughuntSafeLogLine.Replace($bughuntCredential, '[redacted]') }
+        }
+        Write-Output $bughuntSafeLogLine
+    }
+}
 try {
     if (-not $env:HACKERONE_USERNAME) {
         $env:HACKERONE_USERNAME = Read-Host 'HackerOne API token identifier (from API settings)'
@@ -31,8 +40,13 @@ try {
     $bughuntProcess = Start-Process -FilePath $bughuntRuntime -WorkingDirectory $bughuntRoot -ArgumentList $bughuntArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $bughuntLogDir 'worker.stdout.log') -RedirectStandardError (Join-Path $bughuntLogDir 'worker.stderr.log')
     Start-Sleep -Seconds 3
     if ($bughuntProcess.HasExited) {
-        Write-Output 'Worker exited immediately. Last log lines:'
-        Get-Content -LiteralPath (Join-Path $bughuntLogDir 'worker.stderr.log') -Tail 10 -ErrorAction SilentlyContinue
+        Write-Output "Worker exited immediately (exit code $($bughuntProcess.ExitCode)). Last status output:"
+        Write-BugHuntLogTail 'worker.stdout.log' 30
+        Write-Output 'Last error output:'
+        Write-BugHuntLogTail 'worker.stderr.log' 10
+        Write-Output 'Check: python run_bughunt.py worker status'
+        Write-Output 'After resolving a saved authentication or connector pause: python run_bughunt.py worker resume --note "Describe what was fixed"'
+        Write-Output 'For database contention, close the competing database operation and restart this launcher; no new pause was saved.'
         throw 'Worker did not stay running.'
     }
     Write-Output "Worker started with PID $($bughuntProcess.Id). Check: python run_bughunt.py worker status"
