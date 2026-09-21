@@ -22,10 +22,19 @@ try {
         $bughuntTokenPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($bughuntSecret)
         $env:HACKERONE_API_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bughuntTokenPointer)
     }
+    # Pasted values often carry stray spaces; the API client rejects those outright.
+    if ($env:HACKERONE_USERNAME) { $env:HACKERONE_USERNAME = $env:HACKERONE_USERNAME.Trim() }
+    if ($env:HACKERONE_API_TOKEN) { $env:HACKERONE_API_TOKEN = $env:HACKERONE_API_TOKEN.Trim() }
     if (-not $env:HACKERONE_USERNAME -or -not $env:HACKERONE_API_TOKEN) { throw 'Both credential values are required.' }
     # Credentials are inherited through the child environment, never command arguments.
     $bughuntArguments = @('-u', 'run_bughunt.py', 'worker', 'run', '--interval-seconds', "$IntervalSeconds", '--max-pages', "$MaxPages")
     $bughuntProcess = Start-Process -FilePath $bughuntRuntime -WorkingDirectory $bughuntRoot -ArgumentList $bughuntArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $bughuntLogDir 'worker.stdout.log') -RedirectStandardError (Join-Path $bughuntLogDir 'worker.stderr.log')
+    Start-Sleep -Seconds 3
+    if ($bughuntProcess.HasExited) {
+        Write-Output 'Worker exited immediately. Last log lines:'
+        Get-Content -LiteralPath (Join-Path $bughuntLogDir 'worker.stderr.log') -Tail 10 -ErrorAction SilentlyContinue
+        throw 'Worker did not stay running.'
+    }
     Write-Output "Worker started with PID $($bughuntProcess.Id). Check: python run_bughunt.py worker status"
     Write-Output 'Stop: python run_bughunt.py worker stop'
     Write-Output 'Discovery prepares program candidates; it does not test targets or submit reports.'

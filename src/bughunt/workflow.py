@@ -1,6 +1,7 @@
 """Local workflow state machine; no network scanning or external submission."""
 
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
@@ -163,13 +164,15 @@ class Workflow:
         return finding
 
     def patch_brief(self, finding_id):
-        """Self-contained hand-off for Astra, which writes the code fix. Nothing is executed."""
-        with self.store.transaction():
-            finding = self.store.get("findings", finding_id)
-            program, _ = self._require_scope(finding["program_id"], finding["target"])
-            if finding["status"] != "confirmed":
-                raise ValueError("Finding must be confirmed before requesting a patch")
-            self._audit("patch.briefed", "findings", finding)
+        """Self-contained hand-off for Astra, which writes the code fix. Nothing is executed.
+
+        Building the brief does not audit; call ``record_brief`` once it was delivered."""
+        finding = self.store.get("findings", finding_id)
+        program, _ = self._require_scope(finding["program_id"], finding["target"])
+        if finding["status"] != "confirmed":
+            raise ValueError("Finding must be confirmed before requesting a patch")
+        runner = Path(__file__).resolve().parents[2] / "run_bughunt.py"
+        command = (f'python "{runner}"' if runner.exists() else "python -m bughunt") + f' --db "{self.store.path.resolve()}"'
         return {"schema_version": 1, "generated_at": stamp(self.clock()), "assignee": "Astra",
                 "dispatched": False,
                 "delivery": "Generated locally only; give this brief to the patch author yourself. No agent has been started.",
@@ -182,9 +185,14 @@ class Workflow:
                                  "Add a regression test that fails before and passes after the fix.",
                                  "Do not test outside the listed scope or against excluded assets.",
                                  "Recheck current program permission before testing; this brief is a snapshot, not ongoing authorization.",
-                                 f'Record a tested patch with `python run_bughunt.py finding patch {finding["id"]} '
+                                 f'Record a tested patch with `{command} finding patch {finding["id"]} '
                                  '--status verified --reference "PATH_OR_URL_TO_PATCH" '
                                  '--verification "ACTUAL_TEST_COMMAND_AND_OUTPUT"`; replace both placeholders with real evidence.']}
+
+    def record_brief(self, finding_id):
+        with self.store.transaction():
+            finding = self.store.get("findings", finding_id)
+            self._audit("patch.briefed", "findings", finding)
 
     def draft_submission(self, finding_id):
         with self.store.transaction():

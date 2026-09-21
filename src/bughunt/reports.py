@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
 from typing import Any
 
 __all__ = ["generate_reports"]
@@ -40,10 +41,10 @@ def _cell(value: Any) -> str:
         return "—"
     text = " ".join(str(value).split())
     text = "".join(character for character in text if ord(character) >= 32 and ord(character) != 127)
-    text = html.escape(text, quote=True)
     for character in ("\\", "|", "`", "*", "_", "[", "]", "(", ")", "#", "!", "~"):
         text = text.replace(character, "\\" + character)
-    return text
+    # HTML-escape last so entity syntax (&#x27;) is not itself Markdown-escaped.
+    return html.escape(text, quote=True)
 
 
 def _table(headers: list[str], rows: list[list[Any]]) -> str:
@@ -250,7 +251,14 @@ def _atomic_write(path: Path, content: str) -> None:
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        for attempt in range(5):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError:  # Windows: a viewer briefly holds the report open
+                if attempt == 4:
+                    raise
+                time.sleep(0.2)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

@@ -9,3 +9,12 @@ build/
 .env
 .env.*
 !.env.example
+.claude/
+*.log
+*.db
+*.db-journal
+*.sqlite*
+reproduction*.md
+brief*.json
+submission*.json
+fixes/

@@ -121,7 +121,10 @@ false, and a matching URL is insufficient without current verification.
 - URL rules match scheme, effective port, and path segment boundaries.
 - Hostname rules match the exact host on HTTP/HTTPS and any port.
 - `*.example.com` matches subdomains, excluding the root domain.
-- Exclusions win. Ambiguous URLs and malformed policies fail closed.
+- Exclusions win, and are broader than inclusions: a URL exclusion covers every
+  scheme, port, and letter-case variant of its path. Wildcards (`*`, `{}`, `<>`) are
+  not supported inside URL rules and make the policy invalid. Ambiguous URLs and
+  malformed policies fail closed.
 - Scope checks never contact the target. Future executors must recheck redirects
   and enforce DNS/network restrictions separately.
 

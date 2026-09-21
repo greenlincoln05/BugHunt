@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 import json
 from pathlib import Path
+import sqlite3
 import time
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from .reports import _atomic_write, generate_reports
 from .workflow import stamp, utc_now, required
 
 JOB_ID = "hackerone-discovery"
+MAX_BACKOFF_SECONDS = 86400
 
 
 def parsed(value):
@@ -107,11 +109,31 @@ class DiscoveryWorker:
         except AdapterError as error:
             return self._failure(owner, error, interval_seconds)
         except KeyboardInterrupt:
-            self._failure(owner, AdapterError("transient", "Interrupted; restart to continue."), interval_seconds)
+            self._release(owner)
             raise
         except Exception:
             # Do not expose arbitrary transport exceptions that may contain credentials.
             return self._failure(owner, AdapterError("invalid_response", "Unexpected connector failure; review and resume."), interval_seconds)
+        try:
+            outcome = self._apply(owner, batch, interval_seconds)
+        except (sqlite3.Error, OSError):
+            return self._failure(owner, AdapterError("transient", "Could not save the fetched batch; will retry."), interval_seconds)
+        except Exception:
+            return self._failure(owner, AdapterError("invalid_response", "Unexpected error processing a fetched batch; review and resume."), interval_seconds)
+        if outcome["outcome"] in {"lease_lost", "stopped"}:
+            return outcome
+        job, next_url = outcome["job"], outcome["next_url"]
+        try:
+            paths = self.export(output_dir)
+        except (OSError, sqlite3.Error) as error:
+            # Reports are best effort; a locked file must not kill the unattended worker.
+            paths = []
+            self._note_export_failure(error)
+        return {"outcome": "paused" if job["paused_reason"] else "complete" if next_url is None else "continuing",
+                "state": self.status(), "files": paths}
+
+    def _apply(self, owner, batch, interval_seconds):
+        """Merge one fetched batch atomically. Returns the outcome plus the saved job."""
         with self.store.transaction():
             job = self._job()
             if job["lease_owner"] != owner:
@@ -136,9 +158,27 @@ class DiscoveryWorker:
             self.store.save("jobs", job)
             self.store.audit("discovery.batch_completed", "jobs", JOB_ID, stamp(self.clock()),
                              {"pages": batch["pages_fetched"], "candidates": len(batch["programs"]), "complete": next_url is None})
-        paths = self.export(output_dir)
-        return {"outcome": "paused" if job["paused_reason"] else "complete" if next_url is None else "continuing",
-                "state": self.status(), "files": paths}
+        return {"outcome": "applied", "job": job, "next_url": next_url}
+
+    def _release(self, owner):
+        """Give the lease back after Ctrl-C without inventing a server backoff or error."""
+        try:
+            with self.store.transaction():
+                job = self._job()
+                if job["lease_owner"] == owner:
+                    job.update(status="continuing" if job["cursor"] else "idle", lease_owner=None, lease_until=None)
+                    self.store.save("jobs", job)
+                    self.store.audit("discovery.interrupted", "jobs", JOB_ID, stamp(self.clock()))
+        except sqlite3.Error:
+            pass  # The lease expires on its own; still let the interrupt propagate.
+
+    def _note_export_failure(self, error):
+        try:
+            with self.store.transaction():
+                self.store.audit("discovery.export_failed", "jobs", JOB_ID, stamp(self.clock()),
+                                 {"error": type(error).__name__})
+        except sqlite3.Error:
+            pass
 
     @staticmethod
     def _public(job):
@@ -150,7 +190,7 @@ class DiscoveryWorker:
             if job["lease_owner"] != owner:
                 return {"outcome": "lease_lost", "state": self._public(job)}
             pause = error.kind in {"authentication", "invalid_response"}
-            delay = max(interval_seconds, error.retry_after_seconds or 0, 3600 if error.kind == "rate_limit" else 60)
+            delay = min(max(interval_seconds, error.retry_after_seconds or 0, 3600 if error.kind == "rate_limit" else 60), MAX_BACKOFF_SECONDS)
             job.update(status="paused" if pause else "backoff", paused_reason=error.kind if pause else None,
                        last_error=str(error), next_run_at=None if pause else stamp(self.clock() + timedelta(seconds=delay)),
                        lease_owner=None, lease_until=None)

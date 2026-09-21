@@ -13,7 +13,9 @@ Matching semantics:
   trailing slashes on a scope prefix do not change its meaning. A URL origin
   without a path covers every path on that origin. Queries never affect scope.
 * Explicit IP addresses are exact host matches; IP wildcards are invalid.
-* Any matching exclusion overrides any inclusion.
+* Any matching exclusion overrides any inclusion. URL exclusions ignore scheme,
+  port, and path case, so they are never weaker than the inclusions they cut out.
+* Wildcard or template characters in a URL rule are invalid (deny all).
 
 Hosts are lowercased and IDNA-encoded; IPv6 addresses are compressed. Paths are
 UTF-8 decoded and requoted for canonical comparison. To avoid disagreements
@@ -57,7 +59,7 @@ class _Rule:
     port: int | None = None
     path: str = "/"
 
-    def matches(self, target: _Target) -> bool:
+    def matches(self, target: _Target, *, exclusion: bool = False) -> bool:
         if self.wildcard:
             host_matches = target.host.endswith("." + self.host)
         else:
@@ -66,10 +68,15 @@ class _Rule:
             return False
         if self.scheme is None:
             return True
-        if (target.scheme, target.port) != (self.scheme, self.port):
+        # An exclusion must never be weaker than an inclusion: it applies to every
+        # scheme/port variant of the host and ignores path case, so http:// or
+        # /API/Billing cannot slip past an excluded https:// /api/billing.
+        if not exclusion and (target.scheme, target.port) != (self.scheme, self.port):
             return False
-        prefix = self.path.rstrip("/")
-        return not prefix or target.path == prefix or target.path.startswith(prefix + "/")
+        prefix, path = self.path.rstrip("/"), target.path
+        if exclusion:
+            prefix, path = prefix.casefold(), path.casefold()
+        return not prefix or path == prefix or path.startswith(prefix + "/")
 
 
 def _reject_unsafe_text(value: str) -> None:
@@ -173,6 +180,8 @@ def _parse_rule(value: str) -> _Rule:
     if "://" in value:
         if "?" in value:
             raise ValueError("Scope URL entries cannot have queries")
+        if re.search(r"[*{}<>]", value):
+            raise ValueError("Wildcards and template characters are not supported in URL scope entries")
         target = _parse_target(value)
         return _Rule(target.host, scheme=target.scheme, port=target.port, path=target.path)
     wildcard = value.startswith("*.")
@@ -246,7 +255,7 @@ def check_scope(program: dict, target_url: str, now: datetime | None = None) -> 
         exclusions = [_parse_rule(entry) for entry in excluded_scope]
     except ValueError as error:
         return result(False, f"Program scope is invalid: {error}.")
-    if any(rule.matches(target) for rule in exclusions):
+    if any(rule.matches(target, exclusion=True) for rule in exclusions):
         return result(False, "Target matches an explicit scope exclusion.")
     if not any(rule.matches(target) for rule in inclusions):
         return result(False, "Target is outside the verified program scope.")

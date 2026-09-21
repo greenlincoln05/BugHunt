@@ -66,6 +66,19 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
+MAX_RETRY_AFTER_SECONDS = 86400
+
+
+def _truncated(response, raw: bytes) -> bool:
+    """True when a Content-Length body ended early (http.client does not raise for read(amt))."""
+    remaining = getattr(response, "length", None)
+    if type(remaining) is int and remaining > 0:
+        return True
+    headers = getattr(response, "headers", None)
+    declared = headers.get("Content-Length") if headers is not None else None
+    return isinstance(declared, str) and declared.strip().isdigit() and len(raw) < int(declared.strip())
+
+
 def _retry_after(value: object, minimum: int) -> int:
     if not isinstance(value, str):
         return minimum
@@ -77,7 +90,7 @@ def _retry_after(value: object, minimum: int) -> int:
             if when.tzinfo is None:
                 when = when.replace(tzinfo=timezone.utc)
             delay = math.ceil((when - datetime.now(timezone.utc)).total_seconds())
-        return max(minimum, delay)
+        return min(max(minimum, delay), MAX_RETRY_AFTER_SECONDS)
     except (ValueError, TypeError, OverflowError):
         return minimum
 
@@ -106,6 +119,14 @@ def _unique_object(pairs):
 
 def _reject_constant(value):
     raise ValueError("invalid JSON constant")
+
+
+def _encodable(value: object) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _normalize(record: object) -> dict:
@@ -137,6 +158,9 @@ def _normalize(record: object) -> dict:
     policy = attributes.get("policy")
     if policy is not None and not isinstance(policy, str):
         raise _invalid("HackerOne program record has an invalid policy")
+    for value in (attributes["name"], attributes["submission_state"], state, policy):
+        if isinstance(value, str) and not _encodable(value):
+            raise _invalid("HackerOne program record has invalid text")
     return {
         "id": "h1-" + str(identifier),
         "handle": handle,
@@ -193,6 +217,7 @@ class HackerOneClient:
                 if status != 200:
                     raise _http_error(status, response.headers)
                 raw = response.read(MAX_RESPONSE_BYTES + 1)
+                truncated = len(raw) <= MAX_RESPONSE_BYTES and _truncated(response, raw)
         except HTTPError as error:
             failure = _http_error(error.code, error.headers)
             error.close()
@@ -202,6 +227,8 @@ class HackerOneClient:
                                retry_after_seconds=60) from None
         if len(raw) > MAX_RESPONSE_BYTES:
             raise _invalid("HackerOne API response exceeds the size limit")
+        if truncated:
+            raise AdapterError("transient", "HackerOne API response was cut off", retry_after_seconds=60)
         try:
             document = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object,
                                   parse_constant=_reject_constant)
