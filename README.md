@@ -4,11 +4,35 @@ A local bug bounty workflow for modest, well-scoped opportunities. The default
 shortlist favors advertised **USD 50–200** ranges. Python 3.11+ is the only runtime
 requirement; there are no runtime dependencies, paid APIs, or model calls.
 
-This initial build turns the supplied bug bounty Markdown into working records,
-policy checks, submission preparation, retry controls, and reports. It does **not**
-scan targets, discover vulnerabilities, generate patches, log into platforms,
-send reports, read email, or collect money. Platform names identify where you
-manually work; they are not connected API integrations.
+BugHunt provides policy checks, submission preparation, retry controls, reports,
+and an unattended **read-only HackerOne program discovery worker**. It does **not**
+scan targets, discover vulnerabilities, generate patches, send reports, read email,
+or collect money. Bugcrowd and Intigriti currently use manual import/export.
+Discovery collects candidate programs; it is not an income-generating scanner.
+
+## Account setup and AFK discovery
+
+Start with a HackerOne researcher account and a personal API token. The complete
+[account and AFK setup guide](docs/accounts-and-afk.md) includes official account
+links, hidden token entry on Windows, and start/stop commands. No paid API or model
+subscription is required by the application.
+
+```powershell
+python run_bughunt.py setup
+python run_bughunt.py worker status
+.\scripts\Start-Worker.ps1
+```
+
+The launcher prompts for the API token identifier and a hidden token, then starts
+a background worker. It checks public, open, monetary-bounty programs through
+HackerOne's official API and writes `reports/discovery/opportunities.json` after
+each complete refresh. It makes no requests to candidate companies' assets.
+
+Use `python run_bughunt.py worker stop` to stop between request batches. Scope and
+automation permission still need program-specific verification before testing.
+The API does not supply reliable payout ranges in this endpoint, so discovered
+payout bounds stay unknown until policy review; the existing USD 50–200 shortlist
+continues to use manually recorded advertised ranges.
 
 ## Run it
 
@@ -166,7 +190,8 @@ for the same finding cannot reset this limit.
 `downtime` also delays eligibility by one hour. `authentication` and
 `unclear_status` pause the record until `submission resume ID --note "..."`.
 Resuming authentication does not bypass rate-limit backoff. These are persisted
-workflow gates; this version has no background worker to perform automatic retries.
+workflow gates for manually recorded submissions. The discovery worker has its
+own durable backoff and pause state; it never retries or sends a submission.
 
 ## Reports and audit trail
 
@@ -187,10 +212,12 @@ audit entries commit together. The log is append-only through the application,
 but local database owners can edit it; it is not a tamper-proof ledger. SQLite
 records and report files are unencrypted and ignored by Git. Keep sensitive
 reproduction material in appropriately protected local storage; no account
-credentials are needed or stored by this build.
+credentials are stored in the database. The optional discovery worker reads its
+API identifier/token from the process environment and never prints them.
 
 CLI exit codes: `0` success, `2` invalid command/data or storage failure, `3` scope
-denied. Handled command failures are logged when the database remains writable.
+denied, `4` discovery needs attention, `130` interrupted. Handled command failures
+are logged when the database remains writable.
 
 ## Next implementation stages
 

@@ -14,11 +14,14 @@ catalog is intended for selected startup or medium-company programs.
 | `reports.py` | Deterministic JSON/Markdown exports and currency-safe totals |
 | `cli.py` | Explicit local commands and useful exit codes |
 | `demo.py` | Isolated, clearly fictitious end-to-end demonstration |
+| `hackerone.py` | Read-only official API adapter, credentials, pagination, sanitized errors |
+| `worker.py` | Durable discovery batches, leases, backoff, snapshot publication, stop/resume |
 
-Records store structured JSON in four related tables. SQLite foreign keys protect
+Records store structured JSON in four related workflow tables and two discovery
+tables (`jobs` and `opportunities`). SQLite foreign keys protect
 relationships, while business rules live in `Workflow`. Every state mutation
 acquires a write transaction before reading and updating records. Schema version
-1 rejects newer unsupported databases. The CLI and source runner share the same
+2 upgrades existing version-1 databases and rejects newer unsupported databases. The CLI and source runner share the same
 entry point, so tests exercise the user-facing code path.
 
 Program imports deliberately discard verification dates and retain prior blocks.
@@ -41,10 +44,11 @@ dates. Reports describe local records rather than live platform truth.
 
 ## Remaining work from the source specification
 
-1. **Discovery adapters:** documented official APIs or supported catalog exports
-   for each platform, source timestamps and raw policy provenance, current bounty
-   verification, and explicit company-size metadata. Do not invent payout speed
-   statistics or use the local shortlist as proof of authorization.
+1. **Discovery adapters:** HackerOne program discovery is implemented, with raw
+   policy text, a completed-snapshot timestamp, bounded pagination, and unknown
+   payouts preserved. Other platforms, detailed asset/exclusion synchronization,
+   and company-size metadata remain to be added. A discovery snapshot never
+   becomes a verified test authorization automatically.
 2. **Reconnaissance executor:** controlled, non-destructive checks on specifically
    configured authorized assets, with redirect reauthorization, network/DNS
    enforcement, request budgets, rate limits, and reproducible evidence capture.
@@ -56,15 +60,17 @@ dates. Reports describe local records rather than live platform truth.
    idempotency, supported report fields and attachments, acknowledgment/status
    synchronization, and handling restrictions on automation. No credentials are
    accepted by this release; do not place account secrets in catalogs or reports.
-5. **Worker and scheduling:** durable jobs and persisted retry eligibility, explicit
-   pause notifications, target downtime handling, bounded concurrency, and weekly
-   report scheduling. Current backoff state does not run work in the background.
+5. **Worker and scheduling:** the discovery worker has durable cursors, complete
+   snapshot publication, single active-batch leases, stop/resume, and persisted
+   backoff. Submission execution, external notifications, target downtime handling,
+   and OS startup scheduling remain to be added. No worker contacts target assets.
 6. **Confirmation and payout reconciliation:** optional authorized email/platform
    access and duplicate-resistant updates. Platforms handle actual payment; the
    application only records evidence of it.
 
-No platform access, live testing, messages, submissions, schedules, or payments
-were performed to implement this foundation. The demo and tests are offline.
+No authenticated platform access, live testing, messages, submissions, schedules,
+or payments were performed to implement this build. The demo and tests are offline;
+the new worker uses the network only when you configure and run it.
 
 ## Validation
 

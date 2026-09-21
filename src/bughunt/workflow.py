@@ -171,14 +171,20 @@ class Workflow:
                 raise ValueError("Finding must be confirmed before requesting a patch")
             self._audit("patch.briefed", "findings", finding)
         return {"schema_version": 1, "generated_at": stamp(self.clock()), "assignee": "Astra",
+                "dispatched": False,
+                "delivery": "Generated locally only; give this brief to the patch author yourself. No agent has been started.",
                 "task": "Write the code fix for this confirmed issue (CVE/bug); Astra authors the patch.",
                 "finding": {k: finding.get(k) for k in ("id", "title", "type", "severity", "cvss_score",
                             "target", "reproduction", "impact", "confirmation_evidence")},
-                "program": {k: program.get(k) for k in ("id", "name", "platform", "program_url", "scope", "excluded_scope")},
+                "program": {k: program.get(k) for k in ("id", "name", "platform", "program_url", "scope", "excluded_scope",
+                            "verification_note", "verified_at", "verification_expires_at")},
                 "requirements": ["Change only code the program makes available and permits you to modify.",
                                  "Add a regression test that fails before and passes after the fix.",
                                  "Do not test outside the listed scope or against excluded assets.",
-                                 "Record the patch with `finding patch --status ready|verified` and real test output."]}
+                                 "Recheck current program permission before testing; this brief is a snapshot, not ongoing authorization.",
+                                 f'Record a tested patch with `python run_bughunt.py finding patch {finding["id"]} '
+                                 '--status verified --reference "PATH_OR_URL_TO_PATCH" '
+                                 '--verification "ACTUAL_TEST_COMMAND_AND_OUTPUT"`; replace both placeholders with real evidence.']}
 
     def draft_submission(self, finding_id):
         with self.store.transaction():

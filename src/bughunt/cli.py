@@ -1,14 +1,15 @@
-"""Command line entry point. All operations are local and explicitly recorded."""
+"""Local workflow commands and explicit read-only platform discovery."""
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
 
 from .catalog import rank_programs
 from .reports import generate_reports
-from .storage import Store
+from .storage import Store, SCHEMA_VERSION
 from .workflow import Workflow, stamp, utc_now
 
 
@@ -17,6 +18,23 @@ def build_parser():
     parser.add_argument("--db", type=Path, help="SQLite database (default .bughunt/bughunt.db; demo uses demo.db)")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Initialize the local database")
+    commands.add_parser("setup", help="Show account/credential readiness without revealing secrets")
+    worker = commands.add_parser("worker", help="Unattended read-only opportunity discovery").add_subparsers(dest="action", required=True)
+    worker.add_parser("status")
+    worker.add_parser("stop")
+    item = worker.add_parser("resume")
+    item.add_argument("--note", required=True)
+    for action in ("once", "run"):
+        item = worker.add_parser(action)
+        item.add_argument("--max-pages", type=int, default=3)
+        item.add_argument("--interval-seconds", type=int, default=900)
+        item.add_argument("--out", type=Path, default=Path("reports/discovery"))
+        if action == "run":
+            item.add_argument("--max-cycles", type=int, default=0)
+    opportunity = commands.add_parser("opportunity", help="Inspect discovered candidates, not authorized targets").add_subparsers(dest="action", required=True)
+    opportunity.add_parser("list")
+    item = opportunity.add_parser("export")
+    item.add_argument("--out", type=Path, default=Path("reports/discovery"))
     program = commands.add_parser("program", help="Import, verify, and shortlist program policies").add_subparsers(dest="action", required=True)
     item = program.add_parser("import")
     item.add_argument("path", type=Path)
@@ -102,7 +120,35 @@ def build_parser():
 def dispatch(args, store):
     app = Workflow(store)
     if args.command == "init":
-        return {"database": str(store.path.resolve()), "schema_version": 1}
+        return {"database": str(store.path.resolve()), "schema_version": SCHEMA_VERSION}
+    if args.command == "setup":
+        return {"hackerone": {"integration": "read-only program discovery", "create_account": "https://hackerone.com/users/sign_up",
+                "token_instructions": "https://docs.hackerone.com/en/articles/8410331-api-token",
+                "api_identifier_present": bool(os.environ.get("HACKERONE_USERNAME")),
+                "api_token_present": bool(os.environ.get("HACKERONE_API_TOKEN")),
+                "next_step": "Configure API token identifier and token locally, then run worker once. No live access is checked here."},
+                "bugcrowd": {"integration": "manual catalog/report export", "create_account": "https://login.hackers.bugcrowd.com/signin/register"},
+                "intigriti": {"integration": "manual catalog/report export", "create_account": "https://app.intigriti.com/"},
+                "account_guide": "docs/accounts-and-afk.md", "paid_services_required": False,
+                "notice": "Accounts alone do not authorize automated testing; verify each program's current policy."}
+    if args.command == "worker":
+        from .worker import DiscoveryWorker
+        worker = DiscoveryWorker(store)
+        if args.action == "status":
+            return worker.status()
+        if args.action == "stop":
+            return worker.stop()
+        if args.action == "resume":
+            return worker.resume(args.note)
+        options = dict(max_pages=args.max_pages, interval_seconds=args.interval_seconds, output_dir=args.out)
+        if args.action == "once":
+            return worker.cycle(**options)
+        return worker.run(max_cycles=args.max_cycles, **options)
+    if args.command == "opportunity":
+        if args.action == "list":
+            return store.list("opportunities")
+        from .worker import DiscoveryWorker
+        return {"files": DiscoveryWorker(store).export(args.out)}
     if args.command == "program":
         if args.action == "import":
             return app.import_programs(args.path)
@@ -193,7 +239,12 @@ def main(argv=None):
         result = dispatch(args, store)
         # ASCII escapes preserve arbitrary program titles across Windows consoles.
         print(json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False))
+        if args.command == "worker" and args.action in {"once", "run"} and result.get("outcome") == "paused":
+            return 4
         return 3 if args.command == "scope" and not result["allowed"] else 0
+    except KeyboardInterrupt:
+        print("bughunt: worker interrupted; saved progress is retained", file=sys.stderr)
+        return 130
     except (ValueError, OSError, sqlite3.Error) as exc:
         if store is not None:
             try:

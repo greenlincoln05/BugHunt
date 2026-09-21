@@ -38,6 +38,16 @@ class WorkflowTests(unittest.TestCase):
         brief = self.app.patch_brief(finding["id"])
         self.assertEqual(brief["assignee"], "Astra")
         self.assertEqual(brief["finding"]["reproduction"], "Fixture steps")
+        self.assertFalse(brief["dispatched"])
+        self.assertIn("Generated locally only", brief["delivery"])
+        program = self.store.get("programs", "test")
+        for key in ("verified_at", "verification_expires_at", "verification_note"):
+            self.assertEqual(brief["program"][key], program[key])
+        command = brief["requirements"][-1]
+        self.assertIn(f'finding patch {finding["id"]} --status verified', command)
+        self.assertIn('--reference "PATH_OR_URL_TO_PATCH"', command)
+        self.assertIn('--verification "ACTUAL_TEST_COMMAND_AND_OUTPUT"', command)
+        self.assertNotIn("|", command)
         self.now += timedelta(hours=25)
         with self.assertRaises(ValueError):
             self.app.patch_brief(finding["id"])

@@ -6,7 +6,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-TABLES = frozenset({"programs", "findings", "submissions", "payments"})
+SCHEMA_VERSION = 2
+TABLES = frozenset({"programs", "findings", "submissions", "payments", "jobs", "opportunities"})
 
 
 class Store:
@@ -16,7 +17,7 @@ class Store:
         self.connection = sqlite3.connect(self.path, timeout=10, isolation_level=None)
         self.connection.execute("PRAGMA foreign_keys = ON")
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, SCHEMA_VERSION):
             self.close()
             raise ValueError(f"Unsupported database schema version: {version}")
         self.connection.executescript("""
@@ -43,7 +44,13 @@ class Store:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 data TEXT NOT NULL CHECK(json_valid(data))
             );
-            PRAGMA user_version = 1;
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data))
+            );
+            CREATE TABLE IF NOT EXISTS opportunities (
+                id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data))
+            );
+            PRAGMA user_version = 2;
             COMMIT;
         """)
 
