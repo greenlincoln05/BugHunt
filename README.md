@@ -1,0 +1,196 @@
+# BugHunt
+
+A local bug bounty workflow for modest, well-scoped opportunities. The default
+shortlist favors advertised **USD 50–200** ranges. Python 3.11+ is the only runtime
+requirement; there are no runtime dependencies, paid APIs, or model calls.
+
+This initial build turns the supplied bug bounty Markdown into working records,
+policy checks, submission preparation, retry controls, and reports. It does **not**
+scan targets, discover vulnerabilities, generate patches, log into platforms,
+send reports, read email, or collect money. Platform names identify where you
+manually work; they are not connected API integrations.
+
+## Run it
+
+From this repository directory:
+
+```powershell
+python run_bughunt.py --help
+python run_bughunt.py demo
+python scripts/test.py
+```
+
+The demo writes `.bughunt/demo.db` and three reports under `reports/demo/`.
+Its findings, acceptance records, and $100 received / $200 pending are **entirely
+fictitious**. It makes no network requests. The demo refuses to populate a database
+that already contains records. To repeat it, choose a fresh database:
+
+```powershell
+python run_bughunt.py --db .bughunt/demo-2.db demo --out reports/demo-2
+```
+
+Normal commands use a separate `.bughunt/bughunt.db`. The optional `--db` argument
+goes **before** the command. All paths are relative to your current directory.
+If you prefer an installed command, `python -m pip install -e .` installs the
+`bughunt` entry point (installation requires setuptools; the source runner does not).
+
+## Program catalog and shortlist
+
+Create a local JSON file with the programs you have selected from their official
+platform pages. `examples/programs.json` documents the shape and deliberately
+contains only a blocked, unverified localhost fixture.
+
+```powershell
+python run_bughunt.py init
+python run_bughunt.py program import examples/programs.json
+python run_bughunt.py program list
+python run_bughunt.py program shortlist --min-payout 50 --max-payout 200 --currency USD
+```
+
+A real catalog entry looks like this; replace the illustrative values with an
+actual program's documented terms before recording verification:
+
+```json
+{
+  "programs": [{
+    "id": "example-program",
+    "name": "Example program (replace with verified details)",
+    "platform": "hackerone",
+    "program_url": "https://example.com/bounty-policy",
+    "status": "active",
+    "automation_allowed": false,
+    "scope": ["https://app.example.com/api"],
+    "excluded_scope": ["https://app.example.com/api/billing"],
+    "payout_min": "50",
+    "payout_max": "200",
+    "currency": "USD"
+  }]
+}
+```
+
+Supported platform labels: `hackerone`, `bugcrowd`, `intigriti`, `manual`.
+Statuses: `active`, `paused`, `closed`. Payout amounts are decimal strings;
+currencies are uppercase three-letter codes. IDs are lowercase hyphenated slugs.
+Imports reject unknown fields, duplicate IDs, invalid types, and malformed dates.
+Replacing a program clears its previous verification and preserves existing blocks.
+
+Shortlisting selects active, unblocked records with both payout bounds in the
+requested currency and an overlapping advertised range. It ranks closer ranges
+first, with stable name/ID tie breaking. Unknown payout ranges are omitted.
+It does not infer company size, likelihood of finding a bug, or a guaranteed award;
+choose startup and medium-company programs when assembling your catalog.
+
+## Scope and verification
+
+After checking the official program page for an active monetary bounty, exact
+scope, exclusions, and permission for automation, record the evidence:
+
+```powershell
+python run_bughunt.py program verify example-program --automation-allowed --note "Checked official policy URL, scope and automation terms; record source and date here"
+python run_bughunt.py scope example-program https://app.example.com/api/profile
+```
+
+Verification is your explicit attestation, not an automatic platform check. It
+expires after 24 hours by default; `--valid-hours` accepts 1–168. Permission starts
+false, and a matching URL is insufficient without current verification.
+
+- URL rules match scheme, effective port, and path segment boundaries.
+- Hostname rules match the exact host on HTTP/HTTPS and any port.
+- `*.example.com` matches subdomains, excluding the root domain.
+- Exclusions win. Ambiguous URLs and malformed policies fail closed.
+- Scope checks never contact the target. Future executors must recheck redirects
+  and enforce DNS/network restrictions separately.
+
+Record restrictions immediately with `program block ID --reason "..."`.
+`program unblock ID --note "..."` records a review and still requires fresh
+verification. `audit-target ID URL --note "..."` records an audit you actually
+performed; scope checks alone never inflate the audited-target metric.
+
+## Findings and submission records
+
+Save reproduction steps to a local text or Markdown file. Commands print JSON,
+including generated IDs needed by the next step. The IDs below are placeholders.
+
+```powershell
+python run_bughunt.py finding add example-program --target https://app.example.com/api/profile --title "Concise issue title" --type "validation" --severity low --reproduction-file reproduction.md --impact "Concrete impact supported by evidence"
+python run_bughunt.py finding confirm FINDING_ID --evidence "Reference to reproduced behavior and test output"
+python run_bughunt.py finding patch FINDING_ID --status verified --reference fixes/issue.patch --verification "Regression test command and result"
+python run_bughunt.py submission draft FINDING_ID
+python run_bughunt.py submission export SUBMISSION_ID --output reports/submission.json
+```
+
+Findings support an optional `--cvss` score from 0–10. Patch references and test
+evidence are recorded as supplied; BugHunt does not execute or validate the patch.
+For issues without an available source patch, use `--status not_applicable
+--verification "Document why no patch applies and the proposed remediation"`.
+
+The exported JSON includes the program policy, reproduction steps, impact,
+confirmation evidence, patch reference, and submission state. Attach actual patch
+and proof-of-concept files separately in the official portal. Export refuses to
+overwrite an existing file and never sends anything.
+
+After submitting through the official portal, record its ID. Record acceptance
+only when the platform acknowledges it:
+
+```powershell
+python run_bughunt.py submission record SUBMISSION_ID --external-id OFFICIAL_REPORT_ID
+python run_bughunt.py submission accept SUBMISSION_ID --note "Official acceptance message reference" --expected-payment-date 2026-10-01
+python run_bughunt.py payment add SUBMISSION_ID --amount 100 --currency USD --expected-date 2026-10-01
+python run_bughunt.py payment receive PAYMENT_ID --note "Platform payment receipt reference"
+```
+
+A finding must be confirmed before drafting. Recording submission requires fresh
+scope verification and a verified patch or documented not-applicable rationale.
+Payments require explicit acceptance. Installments remain separate; a submission
+becomes `paid` only after all recorded installments are received. No currency
+conversion is performed.
+
+For rejected reports:
+
+```powershell
+python run_bughunt.py submission reject SUBMISSION_ID --reason "Official rejection reason"
+python run_bughunt.py submission review SUBMISSION_ID --note "Reviewer decision and precise documentation/patch changes"
+python run_bughunt.py submission record SUBMISSION_ID --external-id OFFICIAL_REPORT_ID
+```
+
+Every rejection needs a new review before another attempt. There is one original
+submission plus at most two resubmissions. A third rejection sets `needs_review`
+and cannot be retried through the normal workflow. Creating another submission
+for the same finding cannot reset this limit.
+
+`submission error ID --kind rate_limit --note "..."` sets a one-hour backoff;
+`downtime` also delays eligibility by one hour. `authentication` and
+`unclear_status` pause the record until `submission resume ID --note "..."`.
+Resuming authentication does not bypass rate-limit backoff. These are persisted
+workflow gates; this version has no background worker to perform automatic retries.
+
+## Reports and audit trail
+
+```powershell
+python run_bughunt.py reports --out reports
+python run_bughunt.py submission list
+python run_bughunt.py payment list
+python run_bughunt.py audit
+```
+
+- `vulnerabilities_found.json`: findings, severity, patch state, platform, and IDs.
+- `submissions_status.md`: recorded statuses, dates, attempts, and rejection details.
+- `weekly_payout_report.md`: trailing-seven-day activity, pending/received amounts
+  by currency, and average submission-to-acceptance time.
+
+Each report replaces its previous version atomically. Database changes and their
+audit entries commit together. The log is append-only through the application,
+but local database owners can edit it; it is not a tamper-proof ledger. SQLite
+records and report files are unencrypted and ignored by Git. Keep sensitive
+reproduction material in appropriately protected local storage; no account
+credentials are needed or stored by this build.
+
+CLI exit codes: `0` success, `2` invalid command/data or storage failure, `3` scope
+denied. Handled command failures are logged when the database remains writable.
+
+## Next implementation stages
+
+See [architecture.md](docs/architecture.md) for module boundaries and the remaining
+platform discovery, reconnaissance, patch-development, scheduling, and account
+integration work. The user-supplied Markdown is a product specification, not an
+installed system prompt or authorization to operate on arbitrary targets.

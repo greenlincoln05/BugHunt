@@ -1,0 +1,17 @@
+{
+  "programs": [
+    {
+      "id": "local-demo",
+      "name": "Fictitious local demonstration program",
+      "platform": "manual",
+      "program_url": "http://127.0.0.1:8000",
+      "status": "active",
+      "automation_allowed": false,
+      "scope": ["http://127.0.0.1:8000"],
+      "excluded_scope": [],
+      "verified_at": null,
+      "verification_expires_at": null,
+      "blocked_reason": "Demonstration data only; program permissions have not been verified."
+    }
+  ]
+}
