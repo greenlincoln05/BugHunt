@@ -135,8 +135,7 @@ def dispatch(args, store):
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 with args.output.open("x", encoding="utf-8") as handle:
                     json.dump(brief, handle, indent=2, ensure_ascii=False, allow_nan=False)
-                    handle.write("
-")
+                    handle.write("\n")
                 return {"output": str(args.output.resolve()), "assignee": "Astra"}
             return brief
         return app.record_patch(args.id, patch_status=args.status, reference=args.reference, verification=args.verification)
