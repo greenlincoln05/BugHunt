@@ -166,8 +166,24 @@ For issues without an available source patch, use `--status not_applicable
 
 The end goal for this workflow is open-source-first: pick a program with a
 declared source-code asset, work against a local clone of it, and never touch
-anyone's live infrastructure. `opportunity dossier` already reports which
-assets are source code:
+anyone's live infrastructure. Checking candidates one at a time doesn't scale
+past a handful, so triage them in a bounded, resumable batch instead:
+
+```powershell
+python run_bughunt.py opportunity triage --max-candidates 25 --out reports/triage
+```
+
+This makes one small, bounded request per not-yet-checked candidate already in
+`opportunity list` — never more than `--max-candidates` in one run — and writes
+`reports/triage/source_candidates.json`, a shortlist of candidates that declare
+a source-code asset. Re-running skips whatever it already checked (`--recheck`
+to redo them); it stops itself early on an authentication or rate-limit error
+instead of burning through the rest of the batch the same way, and one bad
+candidate's error never blocks the others. Exit code `4` means it stopped early
+for that reason — check `stop_reason` in the output.
+
+For one candidate's full detail — every scope entry and exclusion, not just the
+source-code count — `opportunity dossier` still works the same way it always has:
 
 ```powershell
 python run_bughunt.py opportunity dossier OPPORTUNITY_ID --output reports/dossiers/pick.json

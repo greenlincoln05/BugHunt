@@ -45,6 +45,11 @@ def build_parser():
     item.add_argument("--output", type=Path, required=True)
     item = opportunity.add_parser("export")
     item.add_argument("--out", type=Path, default=Path("reports/discovery"))
+    item = opportunity.add_parser("triage", help="Bounded batch check of already-discovered candidates for a declared source-code asset")
+    item.add_argument("--max-candidates", type=int, default=25)
+    item.add_argument("--max-pages", type=int, default=1)
+    item.add_argument("--recheck", action="store_true", help="Re-check candidates already recorded in the triage state file")
+    item.add_argument("--out", type=Path, default=Path("reports/triage"))
     workspace = commands.add_parser("workspace", help="Local analysis workspaces for a program's own declared source, never a live target").add_subparsers(dest="action", required=True)
     item = workspace.add_parser("clone", help="Clone one declared source-code asset (pick the URL yourself from a dossier's source_code_assets)")
     item.add_argument("--url", required=True, help="https:// Git remote; see a dossier's source_code_assets[].reference")
@@ -203,6 +208,17 @@ def dispatch(args, store):
             return {"output": str(args.output.resolve()), "complete": document["completeness"]["complete"],
                     "source_code_assets": len(document.get("source_code_assets") or []),
                     "review_needed": True, "testing_authorized": False}
+        if args.action == "triage":
+            from .triage import triage_candidates
+            from .hackerone import HackerOneClient
+            result = triage_candidates(HackerOneClient.from_environment(), store.list("opportunities"), args.out,
+                                       max_candidates=args.max_candidates, max_pages=args.max_pages,
+                                       recheck=args.recheck, clock=app.clock)
+            with store.transaction():
+                store.audit("opportunity.triaged", "opportunities", "batch", stamp(app.clock()),
+                            {"attempted": result["attempted"], "source_eligible": result["source_eligible"],
+                             "stopped_early": result["stopped_early"]})
+            return result
         from .worker import DiscoveryWorker
         return {"files": DiscoveryWorker(store).export(args.out)}
     if args.command == "workspace":
@@ -345,6 +361,8 @@ def main(argv=None):
         if args.command == "worker" and args.action in {"once", "run"} and result.get("outcome") == "paused":
             return 4
         if args.command == "model" and args.action == "check" and result.get("model_retrievable") is not True:
+            return 4
+        if args.command == "opportunity" and args.action == "triage" and result.get("stopped_early"):
             return 4
         return 3 if args.command == "scope" and not result["allowed"] else 0
     except KeyboardInterrupt:

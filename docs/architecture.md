@@ -24,6 +24,7 @@ recording stay explicit, human-run actions regardless of the amount.
 | `model_access.py` | Secret-safe explicit model configuration and metadata access checks, without inference |
 | `patchwork.py` | Runs one chosen command in one chosen local Git workspace and captures real regression/diff evidence; never marks a patch verified itself |
 | `workspace.py` | Bounded, HTTPS-only local clone of a program's own declared source-code asset; never a live target |
+| `triage.py` | Bounded, resumable batch dossier check over discovered candidates; writes a local source-eligible shortlist |
 
 Records store structured JSON in four related workflow tables and two discovery
 tables (`jobs` and `opportunities`). SQLite foreign keys protect
@@ -80,11 +81,14 @@ game to keep automating and streamlining.
    policy text, a completed-snapshot timestamp, bounded pagination, and unknown
    payouts preserved. Selected candidates can export detailed scope and reward
    exclusion dossiers for review, including which declared assets are source
-   code (`source_code_assets`) versus live infrastructure. Other platforms,
-   automatic synchronization, company-size metadata, and a bulk OSS-candidate
-   filter across all discovered opportunities (today this is per-candidate, one
-   dossier fetch at a time) remain to be added. A discovery snapshot never
-   becomes a verified test authorization automatically.
+   code (`source_code_assets`) versus live infrastructure. `opportunity triage`
+   turns that per-candidate dossier check into a bounded, resumable batch over
+   every already-discovered candidate (own request budget, stops early instead
+   of hammering the API on auth/rate-limit failure, one candidate's error never
+   blocks the rest, skips what it already checked unless `--recheck`), and
+   writes a local shortlist of source-eligible candidates. Other platforms and
+   automatic synchronization remain to be added. A discovery or triage result
+   never becomes a verified test authorization automatically.
 2. **Reconnaissance executor (live targets):** intentionally not being built
    toward. Controlled, non-destructive checks on specifically configured
    authorized live assets would need redirect reauthorization, network/DNS
