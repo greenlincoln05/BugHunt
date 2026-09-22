@@ -24,6 +24,20 @@ from .hackerone import (
 _ORIGIN = "https://api.hackerone.com"
 _RESOURCES = {"structured_scopes", "scope_exclusions"}
 _RATINGS = {"none", "low", "medium", "high", "critical"}
+# The documented Hacker API asset_type enum value for a declared source-code asset.
+_SOURCE_ASSET_TYPES = {"SOURCE_CODE"}
+
+
+def source_code_assets(dossier: dict) -> list[dict]:
+    """Filter an already-fetched dossier's structured scopes to declared source-code assets.
+
+    Reads only local, already-validated data -- no request is made here. A
+    returned ``reference``/``asset_identifier`` is still the program's own
+    unverified claim, not a URL BugHunt has visited; read it yourself before
+    passing it to `workspace clone`.
+    """
+    return [record for record in dossier.get("structured_scopes", [])
+            if record.get("asset_type") in _SOURCE_ASSET_TYPES]
 
 
 def _handle(value: object) -> str:
@@ -223,6 +237,7 @@ def fetch_program_dossier(client: HackerOneClient, handle: str, max_pages=3) -> 
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "structured_scopes": records,
         "scope_exclusions": exclusions,
+        "source_code_assets": source_code_assets({"structured_scopes": records}),
         "completeness": {"complete": complete, "structured_scopes": scope_status,
                          "scope_exclusions": {"complete": True, "pages_fetched": 1}},
         "review_needed": True,

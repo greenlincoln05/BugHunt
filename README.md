@@ -164,25 +164,51 @@ For issues without an available source patch, use `--status not_applicable
 
 ### Patch workspace (real regression evidence, still human-confirmed)
 
-Once a patch author (Astra or otherwise) has made a change in a **local Git
-checkout of source the program has actually made available to you** — never a
-live target's production assets — capture real evidence instead of typing a
-freehand claim:
+The end goal for this workflow is open-source-first: pick a program with a
+declared source-code asset, work against a local clone of it, and never touch
+anyone's live infrastructure. `opportunity dossier` already reports which
+assets are source code:
 
 ```powershell
-python run_bughunt.py finding evidence FINDING_ID --workspace C:\path\to\checkout --command "pytest tests/test_fix.py" --timeout 300
+python run_bughunt.py opportunity dossier OPPORTUNITY_ID --output reports/dossiers/pick.json
+```
+
+The saved file's `source_code_assets` lists each declared repo (`reference`) and
+whether it's eligible for bounty. Read the entries yourself — they're the
+program's own unverified claim — then clone the one you chose:
+
+```powershell
+python run_bughunt.py workspace clone --url https://github.com/OWNER/REPO --into C:\path\to\checkout --depth 1
+```
+
+`workspace clone` accepts only a plain `https://` Git remote with no embedded
+credentials, refuses to overwrite an existing destination, and is bounded by a
+timeout — it never clones over `ssh://`/`git://`/`ext::`/`file://`. Once a patch
+author (Astra or otherwise, or you) has made a change in that checkout, capture
+real evidence instead of typing a freehand claim:
+
+```powershell
+python run_bughunt.py finding evidence FINDING_ID --workspace C:\path\to\checkout --command "pytest tests/test_fix.py" --timeout 300 --output reports/evidence.json
 ```
 
 This runs exactly the command you give it, inside that workspace, with the same
 trust and network access as if you had typed it into your own terminal. It
 captures the real exit code, stdout/stderr (each capped at 32 KiB), and the
 uncommitted `git diff` (capped at 200 KiB) into JSON — printed to stdout, or
-written with `--output` (exclusive create, like `submission export`). The
-workspace must already exist and be a Git checkout; nothing is cloned or fetched
-for you. **It never changes `patch_status` and never submits or collects
-anything** — it only produces evidence. Paste the relevant parts into
-`finding patch --status verified --verification "..."` yourself once you've
-reviewed the diff and output.
+written with `--output` (exclusive create, like `submission export`). **It never
+changes `patch_status` and never submits or collects anything** — it only
+produces evidence. Feed that file straight into the patch record instead of
+retyping it:
+
+```powershell
+python run_bughunt.py finding patch FINDING_ID --status verified --evidence-file reports/evidence.json
+```
+
+`--evidence-file` fills `--reference`/`--verification` from the captured JSON
+(an explicit `--reference`/`--verification` still overrides it). Marking
+`--status verified` from an evidence file that shows a failing or timed-out run
+is refused — review it yourself and fix it, or record `--status ready` instead
+while it's still in progress.
 
 The exported JSON includes the program policy, reproduction steps, impact,
 confirmation evidence, patch reference, and submission state. Attach actual patch

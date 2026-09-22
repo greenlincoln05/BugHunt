@@ -17,3 +17,12 @@
   commands with required evidence arguments; keep them that way. Do not build a
   path that lets any model (Astra, Codex, Daybreak, or otherwise) call these
   without a human invoking the command with real evidence in hand.
+- **Stated end goal (2026-09-22):** the user wants the human's part reduced to
+  reviewing a diff/writeup and clicking submit, then getting paid. The buildable
+  path there is OSS-source-first: target programs with a declared `SOURCE_CODE`
+  asset (`dossier.source_code_assets`), clone it locally with `workspace clone`,
+  find and fix real bugs there (no live target is ever touched), and capture real
+  regression proof with `finding evidence`. Keep building this direction out —
+  more of the discover -> analyze -> patch -> evidence -> draft chain should
+  require less retyping each time — but the final submit stays an explicit human
+  action, always, for the reasons above.

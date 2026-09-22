@@ -116,6 +116,57 @@ class EvidenceCliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("Git checkout", errors)
 
+    def patch_command(self, *arguments):
+        output, errors = io.StringIO(), io.StringIO()
+        with redirect_stdout(output), redirect_stderr(errors):
+            code = main(["--db", str(self.db), "finding", "patch", *arguments])
+        return code, output.getvalue(), errors.getvalue()
+
+    def test_evidence_file_fills_patch_reference_and_verification(self):
+        finding_id = self.finding()
+        evidence_path = self.root / "evidence.json"
+        code, _, errors = self.command(finding_id, "--workspace", str(self.workspace),
+                                        "--command", "echo regression-ok", "--output", str(evidence_path))
+        self.assertEqual(code, 0, errors)
+        code, output, errors = self.patch_command(finding_id, "--status", "verified", "--evidence-file", str(evidence_path))
+        self.assertEqual(code, 0, errors)
+        result = json.loads(output)
+        self.assertEqual(result["patch_reference"], str(evidence_path.resolve()))
+        self.assertIn("echo regression-ok", result["verification"])
+        self.assertIn("passed=True", result["verification"])
+
+    def test_evidence_file_from_failing_run_refuses_verified_status(self):
+        finding_id = self.finding()
+        evidence_path = self.root / "evidence.json"
+        self.command(finding_id, "--workspace", str(self.workspace),
+                     "--command", "python -c \"import sys; sys.exit(1)\"", "--output", str(evidence_path))
+        code, output, errors = self.patch_command(finding_id, "--status", "verified", "--evidence-file", str(evidence_path))
+        self.assertEqual(code, 2)
+        self.assertIn("does not show a passing regression", errors)
+        self.assertEqual(self.store.list("findings")[0]["patch_status"], "not_started")
+
+    def test_evidence_file_still_allowed_for_ready_status_when_failing(self):
+        """A failing run can still be recorded as 'ready' (work in progress); only
+        'verified' requires a passing capture."""
+        finding_id = self.finding()
+        evidence_path = self.root / "evidence.json"
+        self.command(finding_id, "--workspace", str(self.workspace),
+                     "--command", "python -c \"import sys; sys.exit(1)\"", "--output", str(evidence_path))
+        code, output, errors = self.patch_command(finding_id, "--status", "ready", "--evidence-file", str(evidence_path))
+        self.assertEqual(code, 0, errors)
+        self.assertEqual(json.loads(output)["patch_status"], "ready")
+
+    def test_explicit_reference_and_verification_override_evidence_file(self):
+        finding_id = self.finding()
+        evidence_path = self.root / "evidence.json"
+        self.command(finding_id, "--workspace", str(self.workspace), "--command", "echo ok", "--output", str(evidence_path))
+        code, output, errors = self.patch_command(finding_id, "--status", "verified", "--evidence-file", str(evidence_path),
+                                                    "--reference", "fixes/manual.patch", "--verification", "Manually reviewed")
+        self.assertEqual(code, 0, errors)
+        result = json.loads(output)
+        self.assertEqual(result["patch_reference"], "fixes/manual.patch")
+        self.assertEqual(result["verification"], "Manually reviewed")
+
 
 if __name__ == "__main__":
     unittest.main()

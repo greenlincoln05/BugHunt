@@ -45,6 +45,11 @@ def build_parser():
     item.add_argument("--output", type=Path, required=True)
     item = opportunity.add_parser("export")
     item.add_argument("--out", type=Path, default=Path("reports/discovery"))
+    workspace = commands.add_parser("workspace", help="Local analysis workspaces for a program's own declared source, never a live target").add_subparsers(dest="action", required=True)
+    item = workspace.add_parser("clone", help="Clone one declared source-code asset (pick the URL yourself from a dossier's source_code_assets)")
+    item.add_argument("--url", required=True, help="https:// Git remote; see a dossier's source_code_assets[].reference")
+    item.add_argument("--into", type=Path, required=True, help="Destination directory; must not already exist")
+    item.add_argument("--depth", type=int, default=1, help="Shallow-clone depth (1-1000)")
     program = commands.add_parser("program", help="Import, verify, and shortlist program policies").add_subparsers(dest="action", required=True)
     item = program.add_parser("import")
     item.add_argument("path", type=Path)
@@ -98,6 +103,8 @@ def build_parser():
     item.add_argument("--status", choices=["not_started", "in_progress", "ready", "verified", "not_applicable"], required=True)
     item.add_argument("--reference")
     item.add_argument("--verification")
+    item.add_argument("--evidence-file", type=Path, help="A `finding evidence` output file; fills --reference/--verification from it "
+                       "instead of retyping them. Refused for --status verified unless that file shows a passing run.")
     submission = commands.add_parser("submission").add_subparsers(dest="action", required=True)
     submission.add_parser("list")
     for action in ("draft", "export", "record", "reject", "review", "accept", "error", "resume"):
@@ -194,9 +201,17 @@ def dispatch(args, store):
                 store.audit("opportunity.dossier_exported", "opportunities", args.id, stamp(app.clock()),
                             {"output": str(args.output.resolve()), "complete": document["completeness"]["complete"]})
             return {"output": str(args.output.resolve()), "complete": document["completeness"]["complete"],
+                    "source_code_assets": len(document.get("source_code_assets") or []),
                     "review_needed": True, "testing_authorized": False}
         from .worker import DiscoveryWorker
         return {"files": DiscoveryWorker(store).export(args.out)}
+    if args.command == "workspace":
+        from .workspace import clone_source
+        result = clone_source(args.url, args.into, depth=args.depth)
+        with store.transaction():
+            store.audit("workspace.cloned", "workspace", str(args.into.resolve()), stamp(app.clock()),
+                        {"url": args.url, "depth": args.depth})
+        return result
     if args.command == "program":
         if args.action == "import":
             return app.import_programs(args.path)
@@ -247,7 +262,23 @@ def dispatch(args, store):
                 return {"output": str(args.output.resolve()), "passed": evidence["passed"],
                         "exit_code": evidence["exit_code"], "timed_out": evidence["timed_out"]}
             return evidence
-        return app.record_patch(args.id, patch_status=args.status, reference=args.reference, verification=args.verification)
+        reference, verification = args.reference, args.verification
+        if args.evidence_file:
+            try:
+                evidence = json.loads(args.evidence_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                raise ValueError(f"Could not read --evidence-file: {error}") from error
+            if not isinstance(evidence, dict) or "passed" not in evidence:
+                raise ValueError("--evidence-file does not look like a `finding evidence` output file")
+            if args.status == "verified" and evidence.get("passed") is not True:
+                raise ValueError("--evidence-file does not show a passing regression; review manually before marking verified")
+            reference = reference or str(args.evidence_file.resolve())
+            verification = verification or (
+                f"Captured via `finding evidence`: command `{evidence.get('command')}` "
+                f"exit_code={evidence.get('exit_code')} timed_out={evidence.get('timed_out')} "
+                f"passed={evidence.get('passed')} at {evidence.get('captured_at')}. "
+                f"diff_present={evidence.get('diff_present')}. Full stdout/stderr/diff in {args.evidence_file.resolve()}.")
+        return app.record_patch(args.id, patch_status=args.status, reference=reference, verification=verification)
     if args.command == "submission":
         if args.action == "list":
             return store.list("submissions")

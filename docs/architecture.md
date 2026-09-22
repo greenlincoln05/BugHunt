@@ -23,6 +23,7 @@ recording stay explicit, human-run actions regardless of the amount.
 | `progress.py` | Next-action queue and local receipt-backed first-dollar progress, excluding demos |
 | `model_access.py` | Secret-safe explicit model configuration and metadata access checks, without inference |
 | `patchwork.py` | Runs one chosen command in one chosen local Git workspace and captures real regression/diff evidence; never marks a patch verified itself |
+| `workspace.py` | Bounded, HTTPS-only local clone of a program's own declared source-code asset; never a live target |
 
 Records store structured JSON in four related workflow tables and two discovery
 tables (`jobs` and `opportunities`). SQLite foreign keys protect
@@ -49,27 +50,58 @@ same row. Totals never add submission estimates to payment amounts, and currenci
 are reported separately. Timestamps use UTC; expected payment dates are calendar
 dates. Reports describe local records rather than live platform truth.
 
-## Remaining work from the source specification
+## Stated end goal: OSS-source-first, human reviews and clicks submit
+
+The user's direction (2026-09-22) is to minimize their own involvement down to
+reviewing a diff/writeup and clicking submit, then getting paid. Two things stay
+true regardless: every real bug bounty platform ties automation permission and
+payout identity/KYC to a specific accountable human, and unreviewed AI-submitted
+reports get accounts banned on these platforms today -- so a fully unattended
+"find, exploit, submit, collect" loop against **live** targets isn't just outside
+what this project does, it would work against the user's own goal even if built.
+
+The buildable path that gets close: target programs with a declared source-code
+asset instead of a live web/API target. There is no live system to touch --
+analysis happens against a local clone, which is ordinary software engineering,
+not testing someone's production infrastructure. That removes essentially all of
+the scope/disruption/legal risk that live-target automation carries, and it is
+where the chain below should keep getting less manual over time:
+
+`opportunity dossier` (surfaces `source_code_assets`) -> `workspace clone` (one
+human-chosen URL, HTTPS only) -> find and fix a real bug in the clone -> `finding
+evidence` (real regression + diff, capped and timed out safely) -> `finding patch
+--evidence-file ...` (captured evidence fills the record instead of retyping it)
+-> `submission draft`/`export` (bundle ready for review). The only steps that
+must stay an explicit, separate human action are picking the clone URL, deciding
+whether a fix is actually correct, and clicking submit -- everything else is fair
+game to keep automating and streamlining.
 
 1. **Discovery adapters:** HackerOne program discovery is implemented, with raw
    policy text, a completed-snapshot timestamp, bounded pagination, and unknown
    payouts preserved. Selected candidates can export detailed scope and reward
-   exclusion dossiers for review. Other platforms, automatic synchronization,
-   and company-size metadata remain to be added. A discovery snapshot never
+   exclusion dossiers for review, including which declared assets are source
+   code (`source_code_assets`) versus live infrastructure. Other platforms,
+   automatic synchronization, company-size metadata, and a bulk OSS-candidate
+   filter across all discovered opportunities (today this is per-candidate, one
+   dossier fetch at a time) remain to be added. A discovery snapshot never
    becomes a verified test authorization automatically.
-2. **Reconnaissance executor:** controlled, non-destructive checks on specifically
-   configured authorized assets, with redirect reauthorization, network/DNS
-   enforcement, request budgets, rate limits, and reproducible evidence capture.
-   The current scope matcher alone is not an HTTP execution sandbox.
-3. **Patch workspace:** `finding evidence` runs one chosen command in one chosen
-   local Git checkout and captures the real exit code, stdout/stderr, and
-   uncommitted diff -- so `finding patch --status verified` can cite actual
-   command output instead of a freehand claim. It never touches a live target
-   (the workspace must already exist locally), never chooses the command, and
-   never itself changes `patch_status`; a human still reviews the evidence and
-   runs `finding patch` deliberately. Isolated/ephemeral checkouts, automatic
-   before/after diffing against the program's real upstream, and proof-of-concept
-   artifact capture remain to be added.
+2. **Reconnaissance executor (live targets):** intentionally not being built
+   toward. Controlled, non-destructive checks on specifically configured
+   authorized live assets would need redirect reauthorization, network/DNS
+   enforcement, request budgets, rate limits, and reproducible evidence capture
+   -- and even then, still a human go/no-go per program. The current scope
+   matcher alone is not an HTTP execution sandbox, and that gap is deliberate.
+3. **Patch workspace:** `workspace clone` (bounded, HTTPS-only, no credentials,
+   no overwrite) sets up the local checkout; `finding evidence` runs one chosen
+   command in it and captures the real exit code, stdout/stderr, and uncommitted
+   diff; `finding patch --evidence-file ...` carries that captured evidence
+   straight into the patch record instead of it being retyped. None of these
+   touch a live target, none choose the command or URL for you, and none change
+   `patch_status` on their own -- a human still reviews the evidence and runs
+   `finding patch` deliberately. Remaining: ephemeral/disposable checkouts,
+   automatic before/after diffing against the program's real upstream, an
+   actual semi-autonomous find-the-bug step (static analysis/fuzzing) run
+   against a fresh clone, and proof-of-concept artifact capture.
 4. **Official submission adapters:** platform-specific authentication providers,
    idempotency, supported report fields and attachments, acknowledgment/status
    synchronization, and handling restrictions on automation. Submission adapters

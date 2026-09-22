@@ -6,7 +6,7 @@ import unittest
 from http.client import IncompleteRead
 from urllib.error import HTTPError, URLError
 
-from bughunt.dossier import fetch_program_dossier
+from bughunt.dossier import fetch_program_dossier, source_code_assets
 from bughunt.hackerone import AdapterError, HackerOneClient, MAX_RESPONSE_BYTES
 
 
@@ -91,6 +91,19 @@ class DossierTests(unittest.TestCase):
         self.assertIs(result["automation_allowed"], False)
         self.assertNotIn("Authorization", json.dumps(result))
         self.assertNotIn("local-test-token", json.dumps(result))
+
+    def test_source_code_assets_are_filtered_out_for_oss_targeting(self):
+        records = [scope("10", asset_type="URL"),
+                   scope("11", asset_type="SOURCE_CODE", asset_identifier="bughunt-fixture/example",
+                         reference="https://github.com/bughunt-fixture/example"),
+                   scope("12", asset_type="MOBILE_APPLICATION_ANDROID")]
+        result, _ = self.fetch(Response(page(records)), Response({"data": []}))
+        self.assertEqual(len(result["source_code_assets"]), 1)
+        self.assertEqual(result["source_code_assets"][0]["reference"], "https://github.com/bughunt-fixture/example")
+        # The helper is also usable standalone against an already-saved dossier file.
+        self.assertEqual(source_code_assets(result), result["source_code_assets"])
+        self.assertEqual(source_code_assets({"structured_scopes": []}), [])
+        self.assertEqual(source_code_assets({}), [])
 
     def test_preserves_both_eligible_and_ineligible_assets_for_review(self):
         result, _ = self.fetch(Response(page([scope(), scope("11", eligible_for_bounty=False,
