@@ -87,6 +87,12 @@ def build_parser():
     item = finding.add_parser("brief", help="Write a patch task for Astra (who writes the CVE/bug fix)")
     item.add_argument("id")
     item.add_argument("--output", type=Path)
+    item = finding.add_parser("evidence", help="Run a regression command in a local patch workspace and capture real output (does not mark a patch verified)")
+    item.add_argument("id")
+    item.add_argument("--workspace", type=Path, required=True, help="Existing Git checkout of source the program has made available; never a live target")
+    item.add_argument("--command", dest="regression_command", required=True, help="Exact command to run inside the workspace, e.g. \"pytest tests/test_fix.py\"")
+    item.add_argument("--timeout", type=int, default=300, help="Seconds before the command is killed (5-1800)")
+    item.add_argument("--output", type=Path)
     item = finding.add_parser("patch")
     item.add_argument("id")
     item.add_argument("--status", choices=["not_started", "in_progress", "ready", "verified", "not_applicable"], required=True)
@@ -227,6 +233,20 @@ def dispatch(args, store):
                 app.record_brief(args.id)
                 return {"output": str(args.output.resolve()), "assignee": "Astra"}
             return brief
+        if args.action == "evidence":
+            from .patchwork import capture_regression
+            app.require_confirmed_finding(args.id)
+            evidence = capture_regression(args.workspace, args.regression_command, timeout_seconds=args.timeout, clock=app.clock)
+            evidence["finding_id"] = args.id
+            if args.output:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                with args.output.open("x", encoding="utf-8") as handle:
+                    json.dump(evidence, handle, indent=2, ensure_ascii=False, allow_nan=False)
+                    handle.write("\n")
+                app.record_evidence(args.id, evidence)
+                return {"output": str(args.output.resolve()), "passed": evidence["passed"],
+                        "exit_code": evidence["exit_code"], "timed_out": evidence["timed_out"]}
+            return evidence
         return app.record_patch(args.id, patch_status=args.status, reference=args.reference, verification=args.verification)
     if args.command == "submission":
         if args.action == "list":
@@ -289,6 +309,8 @@ def main(argv=None):
         if args.command == "finding" and args.action == "brief" and args.output is None:
             # Only acknowledge delivery once serialization, writing, and flushing succeeded.
             Workflow(store).record_brief(args.id)
+        if args.command == "finding" and args.action == "evidence" and args.output is None:
+            Workflow(store).record_evidence(args.id, result)
         if args.command == "worker" and args.action in {"once", "run"} and result.get("outcome") == "paused":
             return 4
         if args.command == "model" and args.action == "check" and result.get("model_retrievable") is not True:

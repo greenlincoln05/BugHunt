@@ -226,6 +226,21 @@ class Workflow:
             finding = self.store.get("findings", finding_id)
             self._audit("patch.briefed", "findings", finding)
 
+    def require_confirmed_finding(self, finding_id):
+        """Read-only gate for local patch-evidence capture; does not touch scope or live targets."""
+        finding = self.store.get("findings", finding_id)
+        if finding["status"] != "confirmed":
+            raise ValueError("Finding must be confirmed before capturing patch evidence")
+        return finding
+
+    def record_evidence(self, finding_id, evidence):
+        """Audit that regression evidence was captured. Never changes patch_status;
+        a human still runs `finding patch --status verified` after reviewing it."""
+        with self.store.transaction():
+            finding = self.store.get("findings", finding_id)
+            self._audit("patch.evidence_captured", "findings", finding, passed=evidence["passed"],
+                        exit_code=evidence["exit_code"], timed_out=evidence["timed_out"])
+
     def draft_submission(self, finding_id):
         with self.store.transaction():
             finding = self.store.get("findings", finding_id)

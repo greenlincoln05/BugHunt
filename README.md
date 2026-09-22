@@ -162,6 +162,28 @@ evidence are recorded as supplied; BugHunt does not execute or validate the patc
 For issues without an available source patch, use `--status not_applicable
 --verification "Document why no patch applies and the proposed remediation"`.
 
+### Patch workspace (real regression evidence, still human-confirmed)
+
+Once a patch author (Astra or otherwise) has made a change in a **local Git
+checkout of source the program has actually made available to you** — never a
+live target's production assets — capture real evidence instead of typing a
+freehand claim:
+
+```powershell
+python run_bughunt.py finding evidence FINDING_ID --workspace C:\path\to\checkout --command "pytest tests/test_fix.py" --timeout 300
+```
+
+This runs exactly the command you give it, inside that workspace, with the same
+trust and network access as if you had typed it into your own terminal. It
+captures the real exit code, stdout/stderr (each capped at 32 KiB), and the
+uncommitted `git diff` (capped at 200 KiB) into JSON — printed to stdout, or
+written with `--output` (exclusive create, like `submission export`). The
+workspace must already exist and be a Git checkout; nothing is cloned or fetched
+for you. **It never changes `patch_status` and never submits or collects
+anything** — it only produces evidence. Paste the relevant parts into
+`finding patch --status verified --verification "..."` yourself once you've
+reviewed the diff and output.
+
 The exported JSON includes the program policy, reproduction steps, impact,
 confirmation evidence, patch reference, and submission state. Attach actual patch
 and proof-of-concept files separately in the official portal. Export refuses to

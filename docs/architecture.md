@@ -22,6 +22,7 @@ recording stay explicit, human-run actions regardless of the amount.
 | `dossier.py` | Bounded official structured-scope and reward-exclusion retrieval for review |
 | `progress.py` | Next-action queue and local receipt-backed first-dollar progress, excluding demos |
 | `model_access.py` | Secret-safe explicit model configuration and metadata access checks, without inference |
+| `patchwork.py` | Runs one chosen command in one chosen local Git workspace and captures real regression/diff evidence; never marks a patch verified itself |
 
 Records store structured JSON in four related workflow tables and two discovery
 tables (`jobs` and `opportunities`). SQLite foreign keys protect
@@ -60,9 +61,15 @@ dates. Reports describe local records rather than live platform truth.
    configured authorized assets, with redirect reauthorization, network/DNS
    enforcement, request budgets, rate limits, and reproducible evidence capture.
    The current scope matcher alone is not an HTTP execution sandbox.
-3. **Patch workspace:** isolated checkouts for source made available by the program,
-   focused fixes, before/after regression checks, and proof-of-concept artifacts.
-   A user-entered `verified` record is currently an attestation, not test execution.
+3. **Patch workspace:** `finding evidence` runs one chosen command in one chosen
+   local Git checkout and captures the real exit code, stdout/stderr, and
+   uncommitted diff -- so `finding patch --status verified` can cite actual
+   command output instead of a freehand claim. It never touches a live target
+   (the workspace must already exist locally), never chooses the command, and
+   never itself changes `patch_status`; a human still reviews the evidence and
+   runs `finding patch` deliberately. Isolated/ephemeral checkouts, automatic
+   before/after diffing against the program's real upstream, and proof-of-concept
+   artifact capture remain to be added.
 4. **Official submission adapters:** platform-specific authentication providers,
    idempotency, supported report fields and attachments, acknowledgment/status
    synchronization, and handling restrictions on automation. Submission adapters
