@@ -26,3 +26,6 @@
   more of the discover -> analyze -> patch -> evidence -> draft chain should
   require less retyping each time — but the final submit stays an explicit human
   action, always, for the reasons above.
+- See [docs/roadmap.md](docs/roadmap.md) for the ordered Phase 1 (now) / Phase 2
+  (after Daybreak Trusted Access is granted) buildout plan. Keep it current as
+  items land or the plan changes, rather than letting it drift from the code.

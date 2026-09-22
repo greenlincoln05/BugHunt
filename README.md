@@ -302,3 +302,6 @@ See [architecture.md](docs/architecture.md) for module boundaries and the remain
 platform discovery, reconnaissance, patch-development, scheduling, and account
 integration work. The user-supplied Markdown is a product specification, not an
 installed system prompt or authorization to operate on arbitrary targets.
+
+See [roadmap.md](docs/roadmap.md) for the phased buildout plan, split around
+Daybreak Trusted Access being granted.
