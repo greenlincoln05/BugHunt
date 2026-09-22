@@ -147,9 +147,18 @@ class CatalogTests(unittest.TestCase):
             self.program(id="exact-b", name="Alpha", payout_min="50", payout_max="200", currency="USD"),
             self.program(id="exact-a", name="Alpha", payout_min="50", payout_max="200", currency="USD"),
         ]
-        ranked = rank_programs(programs, limit=3)
+        ranked = rank_programs(programs, min_payout="50", max_payout="200", limit=3)
         self.assertEqual([program["id"] for program in ranked], ["exact-a", "exact-b", "exact-z"])
-        self.assertEqual(ranked, rank_programs(list(reversed(programs)), limit=3))
+        self.assertEqual(ranked, rank_programs(list(reversed(programs)), min_payout="50", max_payout="200", limit=3))
+
+    def test_default_range_is_50_to_2000_not_a_ceiling(self):
+        cheap = self.program(id="cheap", payout_min="50", payout_max="200", currency="USD")
+        pricier = self.program(id="pricier", payout_min="500", payout_max="2000", currency="USD")
+        above_default = self.program(id="above-default", payout_min="2001", payout_max="5000", currency="USD")
+        self.assertEqual({p["id"] for p in rank_programs([cheap, pricier, above_default])}, {"cheap", "pricier"})
+        # Explicit bounds reach beyond the default; the default is a starting point, not a hard limit.
+        self.assertEqual({p["id"] for p in rank_programs([cheap, pricier, above_default],
+                          min_payout="50", max_payout="5000")}, {"cheap", "pricier", "above-default"})
 
     def test_shortlist_filters_status_blocks_currency_and_unknown_ranges(self):
         def candidate(program_id, **updates):
@@ -168,7 +177,7 @@ class CatalogTests(unittest.TestCase):
             candidate("below", payout_min="1", payout_max="49"),
             missing_minimum, missing_maximum, self.program(id="unknown-range"),
         ]
-        self.assertEqual([program["id"] for program in rank_programs(programs)], ["eligible"])
+        self.assertEqual([program["id"] for program in rank_programs(programs, min_payout="50", max_payout="200")], ["eligible"])
 
     def test_shortlist_includes_touching_ranges_and_copies_records(self):
         source = self.program(payout_min="200", payout_max="300", currency="USD")

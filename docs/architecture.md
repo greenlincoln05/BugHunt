@@ -2,8 +2,11 @@
 
 The first release is a local workflow foundation using Python's standard library.
 The user's latest priority overrides the source document's preference for
-high-severity, high-payout targets: the shortlist defaults to USD 50–200 and the
-catalog is intended for selected startup or medium-company programs.
+high-severity, high-payout targets: the shortlist defaults to USD 50–2000, which is
+a starting point rather than a ceiling, and the catalog is intended for selected
+startup or medium-company programs. A higher advertised payout does not relax any
+scope, verification, or evidence requirement below — submission and payment
+recording stay explicit, human-run actions regardless of the amount.
 
 | Module | Responsibility |
 | --- | --- |

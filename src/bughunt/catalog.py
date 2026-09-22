@@ -189,7 +189,7 @@ def load_catalog(path: str | Path) -> list[dict]:
 def rank_programs(
     programs: list[dict],
     min_payout: str = "50",
-    max_payout: str = "200",
+    max_payout: str = "2000",
     currency: str = "USD",
     limit: int = 10,
 ) -> list[dict]:
@@ -199,6 +199,13 @@ def rank_programs(
     the sum of the absolute differences between the desired and advertised
     endpoints; name and ID break ties deterministically. This does not verify
     permission to test, promise an award, or infer a company's size.
+
+    The default range (USD 50-2000) is a starting point, not a ceiling: pass
+    wider ``--min-payout``/``--max-payout`` bounds for any advertised range a
+    human has decided is worth the effort. Ranking never estimates how likely
+    a program is to yield a finding or how much work a bounty will take;
+    that judgment, and the decision to pursue a program at any payout level,
+    stays with the person running this command.
     """
     bounds = []
     for field, value in (("min_payout", min_payout), ("max_payout", max_payout)):

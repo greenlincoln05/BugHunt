@@ -108,7 +108,7 @@ never forwarded through redirects or to a company's target assets.
 
 Program payout bounds and company size are not provided by the supported endpoint.
 They remain unknown. Review the saved policy and official program page for modest
-USD 50–200 opportunities, then import the chosen scope and advertised payout range
+USD 50–2000 opportunities (not a hard ceiling), then import the chosen scope and advertised payout range
 through `program import` and record current permission through `program verify`.
 The `fast_payments` flag is metadata, not a promised payday.
 

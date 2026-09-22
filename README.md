@@ -1,7 +1,9 @@
 # BugHunt
 
 A local bug bounty workflow for modest, well-scoped opportunities. The default
-shortlist favors advertised **USD 50–200** ranges. Python 3.11+ is the only runtime
+shortlist favors advertised **USD 50–2000** ranges, which is a starting point
+rather than a ceiling — pass wider `--min-payout`/`--max-payout` bounds for any
+program a human has decided is worth pursuing. Python 3.11+ is the only runtime
 requirement; there are no runtime dependencies, paid APIs, or model calls.
 
 BugHunt provides policy checks, submission preparation, retry controls, reports,
@@ -31,7 +33,7 @@ each complete refresh. It makes no requests to candidate companies' assets.
 Use `python run_bughunt.py worker stop` to stop between request batches. Scope and
 automation permission still need program-specific verification before testing.
 The API does not supply reliable payout ranges in this endpoint, so discovered
-payout bounds stay unknown until policy review; the existing USD 50–200 shortlist
+payout bounds stay unknown until policy review; the existing USD 50–2000 shortlist
 continues to use manually recorded advertised ranges.
 
 ## Run it
@@ -68,7 +70,7 @@ contains only a blocked, unverified localhost fixture.
 python run_bughunt.py init
 python run_bughunt.py program import examples/programs.json
 python run_bughunt.py program list
-python run_bughunt.py program shortlist --min-payout 50 --max-payout 200 --currency USD
+python run_bughunt.py program shortlist --min-payout 50 --max-payout 2000 --currency USD
 ```
 
 A real catalog entry looks like this; replace the illustrative values with an
