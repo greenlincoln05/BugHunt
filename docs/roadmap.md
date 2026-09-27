@@ -1,8 +1,10 @@
 # Roadmap
 
-Living plan for the rest of the buildout, split around one event: **Daybreak
-Trusted Access being granted**. Phase 1 is everything buildable and useful
-right now, without it. Phase 2 is what actually changes once it's granted.
+Living plan for the rest of the buildout. Daybreak Blue access in Codex is
+available for local source review; the separate API project access needed by
+`workspace analyze` is not configured in this checkout. Phase 1 remains useful
+without API calls. Phase 2 covers the gated API integration once that project
+is approved and configured.
 
 One constraint holds across both phases, unconditionally: **submitting a
 report and recording a payment stay explicit, human-run actions** (see
@@ -27,7 +29,7 @@ explicitly pointed at a specific workspace. There's no tooling yet that makes
 that step itself faster, cheaper, or more mechanical — that's most of what
 Phase 1 is.
 
-## Phase 1 — now, before Daybreak access
+## Phase 1 — local work without API Daybreak access
 
 Ordered roughly by how much it unblocks getting to a first real submission.
 
@@ -88,9 +90,9 @@ Ordered roughly by how much it unblocks getting to a first real submission.
    like the one that found and fixed 14 issues earlier, on whatever's changed
    since the last one.
 
-## Phase 2 — after Daybreak Trusted Access is granted
+## Phase 2 — gated API analysis after API project access
 
-**Status (2026-09-26): started.** The two prerequisites below are built:
+**Status (2026-09-27): implementation started; live API use is pending.** The two prerequisites below are built:
 `model verify` (time-limited human attestation, bound to the configured
 model/org/project and refused unless a person is at a terminal), `model budget`
 (hard local request/token cap reserved *before* each paid call, under a
@@ -101,7 +103,8 @@ anchored outside any checkout), a double-spend race, self-attestation by
 unattended agents, `.git`/secret/untracked-file exposure, and paid-response
 loss paths. Still recommended: a spend limit on the provider-side project. Not yet done: a live smoke test against the real model (needs
 your credentials in your own shell), tuning the review prompt on real code,
-and items 3-4 below. The original reasoning follows.
+and items 3-4 below. Codex-only Daybreak approval does not satisfy the API
+project gate. The original reasoning follows.
 
 Two things need settling first, before any integration work:
 

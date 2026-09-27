@@ -87,6 +87,11 @@ HackerOne tokens and OpenAI API keys serve different services. Keep secrets
 local; never commit them or paste them into chat. Discovery needs only
 `HACKERONE_USERNAME` (the token identifier) and `HACKERONE_API_TOKEN`.
 
+If Daybreak Blue is approved only in the Codex app, review the local clone in
+Codex. That uses the approved app surface and does not require an OpenAI API key
+or consume BugHunt's API request budget. `workspace analyze` is a separate API
+path; leave it idle until its project access is approved and configured.
+
 Daybreak requires Trusted Access approval for the specific model and product
 surface. An API key or purchased Codex credits alone does not confer that access.
 Use the [individual application](https://chatgpt.com/cyber) and confirm which
@@ -140,8 +145,9 @@ CLI error path. Other database faults remain errors rather than retry loops.
   credentials in their invoking process.
 - The live-database integration passes all 168 tests, including read-only file
   preservation and a consistent snapshot while another connection commits.
-- Daybreak access remains pending while the user arranges security keys. Do not
-  repeatedly request credentials or attempt that model while approval is pending.
+- On 2026-09-27 the user confirmed Daybreak Blue access in the Codex app only.
+  The API project path remains unconfigured in this process. Do not attempt a
+  paid `workspace analyze` call until the separately approved API project is ready.
 - Ignored `.bughunt/research/status.json` records Zabbix selected for an owned
   local sandbox, zero revenue, and no confirmed findings. This is historical
   context, not current authorization or a confirmed bug.

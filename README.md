@@ -162,10 +162,14 @@ evidence are recorded as supplied; BugHunt does not execute or validate the patc
 For issues without an available source patch, use `--status not_applicable
 --verification "Document why no patch applies and the proposed remediation"`.
 
-### Gated model analysis (Phase 2: spend credits safely)
+### Gated API model analysis (Phase 2: spend credits safely)
 
-With OpenAI Trusted Access for a model granted, `workspace analyze` asks that
-model to review files you choose in a local checkout (after `workspace clone`)
+`workspace analyze` requires Daybreak approval for an OpenAI API project and an
+API key from that project. Daybreak access in the Codex app alone does not grant
+API project access. If only Codex is approved, open a local source checkout in
+Codex and review it there; leave this paid API command idle. With approved API
+access, `workspace analyze` asks the configured model to review files you choose
+in a local checkout (after `workspace clone`)
 and return **candidate** findings. Set credentials in your own shell — never
 paste them into chat, a file in this repo, or a command line:
 
@@ -377,4 +381,4 @@ integration work. The user-supplied Markdown is a product specification, not an
 installed system prompt or authorization to operate on arbitrary targets.
 
 See [roadmap.md](docs/roadmap.md) for the phased buildout plan, split around
-Daybreak Trusted Access being granted.
+Daybreak access on the specific Codex and API surfaces.
