@@ -26,6 +26,8 @@ MAX_NOTE_CHARS = 500
 MAX_RESPONSE_BYTES = 64 * 1024
 REQUEST_TIMEOUT_SECONDS = 20
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,511}\Z")
+CYBER_ACCESS_ENV = "BUGHUNT_OPENAI_CYBER_ACCESS"
+DAYBREAK_BLUE = "daybreak_blue"
 _NOTICE = (
     "A listed or retrievable model is not proof of Trusted Access approval or inference permissions. "
     "Confirm the approved identity, organization/project, model, and API surface separately. "
@@ -101,8 +103,10 @@ def model_readiness(environ=None, check_access=False, opener=None):
     model = environment.get("BUGHUNT_OPENAI_MODEL")
     organization = environment.get("OPENAI_ORG_ID")
     project = environment.get("OPENAI_PROJECT_ID")
+    cyber_access = environment.get(CYBER_ACCESS_ENV)
     result = {
         "api_key_present": _present(key), "model_configured": _present(model),
+        "daybreak_blue_configured": cyber_access == DAYBREAK_BLUE,
         "organization_id_present": _present(organization), "project_id_present": _present(project),
         "check_requested": check_access is True, "network_checked": False,
         "model_retrievable": None, "http_status": None, "status": "not_checked",
@@ -112,9 +116,11 @@ def model_readiness(environ=None, check_access=False, opener=None):
     }
     if check_access is not True:
         return result
-    if not result["api_key_present"] or not result["model_configured"]:
+    if (not result["api_key_present"] or not result["model_configured"]
+            or not result["daybreak_blue_configured"]):
         return _failure(result, "configuration_missing",
-                        "Set OPENAI_API_KEY and an explicit BUGHUNT_OPENAI_MODEL locally before checking access.")
+                        "Set OPENAI_API_KEY, an explicit BUGHUNT_OPENAI_MODEL, and "
+                        "BUGHUNT_OPENAI_CYBER_ACCESS=daybreak_blue locally before checking access.")
     if (not _header_value(key, 8192) or not _MODEL_ID.fullmatch(model)
             or (organization not in (None, "") and not _header_value(organization, 1024))
             or (project not in (None, "") and not _header_value(project, 1024))):
@@ -167,11 +173,14 @@ def model_readiness(environ=None, check_access=False, opener=None):
 
 
 def _fingerprint(environment):
-    """Hash of the configured model + organization + project (never the key)."""
+    """Hash of model + account routing + Daybreak selection (never the key)."""
     model = environment.get("BUGHUNT_OPENAI_MODEL")
-    if not _present(model) or not _MODEL_ID.fullmatch(model.strip()):
+    cyber_access = environment.get(CYBER_ACCESS_ENV)
+    if (not _present(model) or not _MODEL_ID.fullmatch(model.strip())
+            or cyber_access != DAYBREAK_BLUE):
         return None
-    parts = [model.strip(), (environment.get("OPENAI_ORG_ID") or "").strip(), (environment.get("OPENAI_PROJECT_ID") or "").strip()]
+    parts = [model.strip(), (environment.get("OPENAI_ORG_ID") or "").strip(),
+             (environment.get("OPENAI_PROJECT_ID") or "").strip(), cyber_access]
     return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
 
 
@@ -200,7 +209,8 @@ def record_access_attestation(note, *, valid_hours=24, environ=None, path=None, 
         raise ValueError(f"valid_hours must be an integer between {MIN_ATTESTATION_HOURS} and {MAX_ATTESTATION_HOURS}")
     fingerprint = _fingerprint(environment)
     if fingerprint is None:
-        raise ValueError("Set BUGHUNT_OPENAI_MODEL to the exact approved model ID first: the attestation is bound to it")
+        raise ValueError("Set BUGHUNT_OPENAI_MODEL to the exact approved model ID and "
+                         "BUGHUNT_OPENAI_CYBER_ACCESS=daybreak_blue first: the attestation is bound to them")
     now = clock() if clock is not None else datetime.now(timezone.utc)
     document = {"schema_version": 2, "note": note, "verified_at": now.isoformat(),
                 "expires_at": (now + timedelta(hours=valid_hours)).isoformat(), "fingerprint": fingerprint}
@@ -231,6 +241,6 @@ def access_attestation_status(path=None, clock=None, environ=None):
         return {"attested": False, "reason": f"Access attestation expired at {document['expires_at']}; record a new one."}
     current = _fingerprint(environment)
     if current is None or current != fingerprint:
-        return {"attested": False, "reason": "The configured model, organization, or project differs from what was "
+        return {"attested": False, "reason": "The configured model, organization, project, or cyber access program differs from what was "
                                               "attested; run `model verify` again for the current configuration."}
     return {"attested": True, "reason": None, "note": note, "expires_at": document["expires_at"]}

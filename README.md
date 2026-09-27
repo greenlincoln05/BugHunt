@@ -171,7 +171,8 @@ paste them into chat, a file in this repo, or a command line:
 
 ```powershell
 $env:OPENAI_API_KEY = "..."            # from your OpenAI project
-$env:BUGHUNT_OPENAI_MODEL = "..."      # the exact model ID shown in your dashboard
+$env:BUGHUNT_OPENAI_MODEL = "gpt-5.6-sol" # the approved model requested for this run
+$env:BUGHUNT_OPENAI_CYBER_ACCESS = "daybreak_blue" # selects Daybreak safeguards on Responses API calls
 python run_bughunt.py model check      # free metadata GET; proves key + model ID are valid
 python run_bughunt.py model verify --note "Approval email seen 2026-09-26"   # your attestation, expires in 24h
 python run_bughunt.py model budget set --max-requests 5                      # hard local cap, checked before every call
@@ -191,7 +192,7 @@ pseudo-terminal can defeat this, which is why the provider-side limit matters.
 `model check` can only show that the key and model ID work together; it cannot
 prove approval, so `model verify` is your own time-limited statement, the same
 role `program verify` plays for scope. It is bound to a hash of the configured
-model, organization, and project, so changing any of them needs a new
+model, organization, project, and Daybreak access program, so changing any of them needs a new
 attestation, and it expires (24h by default, 168h at most). The gate state
 (attestation and budget ledger) lives in `~/.bughunt` — or `BUGHUNT_HOME` — never
 the current directory or a checkout, so a cloned repository cannot supply its own,

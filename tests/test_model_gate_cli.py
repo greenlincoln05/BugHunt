@@ -26,6 +26,7 @@ class ModelGateCliTests(unittest.TestCase):
         self.db = self.root / "test.db"
         self.state = self.root / "state"
         env = patch.dict(os.environ, {"OPENAI_API_KEY": KEY, "BUGHUNT_OPENAI_MODEL": MODEL,
+                                      "BUGHUNT_OPENAI_CYBER_ACCESS": "daybreak_blue",
                                       "BUGHUNT_HOME": str(self.state)})
         env.start()
         self.addCleanup(env.stop)

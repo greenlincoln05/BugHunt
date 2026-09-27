@@ -89,7 +89,8 @@ class AnalysisTests(unittest.TestCase):
         self.state = self.root / "state"  # gate state lives outside any checkout
         self.attestation = self.state / "attest.json"
         self.ledger = self.state / "ledger.json"
-        self.environ = {"OPENAI_API_KEY": KEY, "BUGHUNT_OPENAI_MODEL": MODEL}
+        self.environ = {"OPENAI_API_KEY": KEY, "BUGHUNT_OPENAI_MODEL": MODEL,
+                        "BUGHUNT_OPENAI_CYBER_ACCESS": "daybreak_blue"}
         self.attest()
         budget.set_budget(5, path=self.ledger, clock=lambda: self.now)
 
@@ -128,6 +129,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(post.get_method(), "POST")
         body = json.loads(post.data.decode("utf-8"))
         self.assertEqual(body["model"], MODEL)
+        self.assertEqual(body["access_programs"], {"cyber": "daybreak_blue"})
         self.assertIs(body["store"], False)
         self.assertIn("untrusted", body["instructions"])
         self.assertIn("pickle.loads", body["input"])
@@ -157,6 +159,7 @@ class AnalysisTests(unittest.TestCase):
 
     def test_attestation_is_bound_to_the_configured_model_and_project(self):
         for changed in ({"BUGHUNT_OPENAI_MODEL": "some-other-model"}, {"OPENAI_PROJECT_ID": "proj_other"},
+                        {"BUGHUNT_OPENAI_CYBER_ACCESS": "daybreak_red"},
                         {"OPENAI_ORG_ID": "org_other"}):
             opener = Opener()
             with self.assertRaises(AnalysisError) as caught:

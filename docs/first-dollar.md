@@ -93,8 +93,11 @@ Use the [individual application](https://chatgpt.com/cyber) and confirm which
 workspace or API project is approved. Daybreak Red requires separate approval.
 See the [official access guide](https://learn.chatgpt.com/docs/cyber-safety).
 
-Once you have an approved API project, configure `OPENAI_API_KEY` locally and set
-`BUGHUNT_OPENAI_MODEL` to the exact approved model ID. Optional routing variables
+Once you have an approved API project, configure `OPENAI_API_KEY` locally, set
+`BUGHUNT_OPENAI_MODEL=gpt-5.6-sol`, and set
+`BUGHUNT_OPENAI_CYBER_ACCESS=daybreak_blue`. The last setting is sent as
+`access_programs.cyber` on every Responses API analysis request and is bound into
+the human attestation. Optional routing variables
 are `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID`. No model is chosen automatically.
 
 ```powershell

@@ -49,7 +49,8 @@ class Opener:
 
 class ModelAccessTests(unittest.TestCase):
     def environment(self, **extra):
-        return {"OPENAI_API_KEY": KEY, "BUGHUNT_OPENAI_MODEL": MODEL, **extra}
+        return {"OPENAI_API_KEY": KEY, "BUGHUNT_OPENAI_MODEL": MODEL,
+                "BUGHUNT_OPENAI_CYBER_ACCESS": "daybreak_blue", **extra}
 
     def assert_redacted(self, result):
         serialized = json.dumps(result)
@@ -63,7 +64,8 @@ class ModelAccessTests(unittest.TestCase):
     def test_default_only_reports_presence_and_never_opens_network(self):
         opener = Opener()
         result = model_readiness(self.environment(OPENAI_ORG_ID=ORG, OPENAI_PROJECT_ID=PROJECT), opener=opener)
-        for flag in ("api_key_present", "model_configured", "organization_id_present", "project_id_present"):
+        for flag in ("api_key_present", "model_configured", "daybreak_blue_configured",
+                     "organization_id_present", "project_id_present"):
             self.assertIs(result[flag], True)
         self.assertEqual(result["status"], "not_checked")
         self.assertIsNone(result["model_retrievable"])

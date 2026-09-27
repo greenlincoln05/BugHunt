@@ -39,7 +39,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from . import budget
 from .model_access import (
-    _MODEL_ID, _NoRedirect, _header_value, _present, access_attestation_status,
+    CYBER_ACCESS_ENV, DAYBREAK_BLUE, _MODEL_ID, _NoRedirect, _header_value, _present, access_attestation_status,
     default_attestation_path, model_readiness,
 )
 
@@ -327,8 +327,10 @@ def analyze_workspace(workspace, files, *, focus="general security review", envi
     if readiness["model_retrievable"] is not True:
         raise AnalysisError(f"Model preflight failed ({readiness['status']}): {readiness['message']} No credit was spent.")
     key, model = environment["OPENAI_API_KEY"], environment["BUGHUNT_OPENAI_MODEL"]
+    cyber_access = environment.get(CYBER_ACCESS_ENV)
     organization, project = environment.get("OPENAI_ORG_ID") or None, environment.get("OPENAI_PROJECT_ID") or None
-    if not (_present(key) and _MODEL_ID.fullmatch(model) and _header_value(key, 8192)):
+    if not (_present(key) and _MODEL_ID.fullmatch(model) and _header_value(key, 8192)
+            and cyber_access == DAYBREAK_BLUE):
         raise AnalysisError("Local model configuration is invalid; nothing was sent")
 
     prompt = _build_input(focus, loaded)
@@ -343,7 +345,8 @@ def analyze_workspace(workspace, files, *, focus="general security review", envi
     except ValueError as error:
         raise AnalysisError(f"Budget ledger problem: {error} No request was sent.") from None
 
-    body = {"model": model, "instructions": _INSTRUCTIONS, "input": prompt,
+    body = {"model": model, "access_programs": {"cyber": cyber_access},
+            "instructions": _INSTRUCTIONS, "input": prompt,
             "max_output_tokens": max_output_tokens, "store": False}
     try:
         document = _post(body, key=key, organization=organization, project=project, opener=opener)
