@@ -54,6 +54,12 @@ def build_parser():
     item.add_argument("--output", type=Path, required=True)
     item = opportunity.add_parser("export")
     item.add_argument("--out", type=Path, default=Path("reports/discovery"))
+    item = opportunity.add_parser("promote", help="Import one declared source asset from a saved complete dossier; remains unverified")
+    item.add_argument("id", help="Discovered opportunity ID")
+    item.add_argument("--dossier", type=Path, required=True, help="Saved opportunity dossier JSON")
+    item.add_argument("--source-url", required=True, help="Exact bounty-eligible SOURCE_CODE URL selected from the dossier")
+    item.add_argument("--payout-min", required=True, help="Advertised minimum in the program's currency, checked by you")
+    item.add_argument("--payout-max", required=True, help="Advertised maximum in the program's currency, checked by you")
     item = opportunity.add_parser("triage", help="Bounded batch check of already-discovered candidates for a declared source-code asset")
     item.add_argument("--max-candidates", type=int, default=25)
     item.add_argument("--max-pages", type=int, default=1)
@@ -253,6 +259,10 @@ def dispatch(args, store):
     if args.command == "opportunity":
         if args.action == "list":
             return store.list("opportunities")
+        if args.action == "promote":
+            from .promotion import promote
+            return promote(store, args.id, args.dossier, args.source_url,
+                           args.payout_min, args.payout_max, clock=app.clock)
         if args.action == "dossier":
             from .dossier import fetch_program_dossier
             from .hackerone import HackerOneClient

@@ -268,7 +268,19 @@ python run_bughunt.py opportunity dossier OPPORTUNITY_ID --output reports/dossie
 
 The saved file's `source_code_assets` lists each declared repo (`reference`) and
 whether it's eligible for bounty. Read the entries yourself — they're the
-program's own unverified claim — then clone the one you chose:
+program's own unverified claim. After checking the advertised payout range,
+promote one exact bounty-eligible source URL into an **unverified** program
+record, without retyping catalog JSON:
+
+```powershell
+python run_bughunt.py opportunity promote OPPORTUNITY_ID --dossier reports/dossiers/pick.json --source-url https://github.com/OWNER/REPO --payout-min 50 --payout-max 200
+```
+
+Promotion is offline, rejects incomplete or mismatched dossiers and existing
+program IDs, and does not authorize testing. The scope record contains only
+the selected source URL. Review the current policy and use `program verify`
+only when its required automated-testing permission is actually documented.
+Then clone the repository you chose:
 
 ```powershell
 python run_bughunt.py workspace clone --url https://github.com/OWNER/REPO --into C:\path\to\checkout --depth 1

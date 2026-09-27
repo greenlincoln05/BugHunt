@@ -21,7 +21,7 @@ dossiers with source-code-asset detection (`dossier.py`), a batch OSS
 shortlist (`triage.py`), a bounded local clone helper (`workspace.py`), local
 regression-evidence capture (`patchwork.py`), an OpenAI/Daybreak metadata
 preflight with no inference (`model_access.py`), and a next-action tracker
-(`progress.py`). The local suite had 266 passing tests at the last full run.
+(`progress.py`). The local suite has 269 passing tests at this milestone.
 
 Gap: everything from "here's a cloned repo" to "here's a real, fixable bug in
 it" currently happens only when an agent session (this one, or another) is
@@ -33,15 +33,10 @@ Phase 1 is.
 
 Ordered roughly by how much it unblocks getting to a first real submission.
 
-1. **`opportunity promote`** — bridge a triaged candidate straight into the
-   program catalog. Right now `opportunity triage`/`dossier` tell you a
-   program looks OSS-eligible, but getting it into `programs` (what
-   `finding add`/`program verify` actually operate on) means hand-authoring a
-   JSON file that matches `catalog.py`'s strict schema from scratch. This
-   command should pre-fill `id`/`name`/`platform`/`program_url` from the
-   opportunity and `scope` from the dossier's asset list, and still require a
-   human to fill in payout figures and run `program verify` themselves — the
-   verification attestation doesn't move, only the retyping goes away.
+1. **`opportunity promote`** — completed. From a saved complete dossier, it
+   imports one explicitly selected bounty-eligible `SOURCE_CODE` URL into the
+   program catalog, using the discovered candidate's identity and human-checked
+   payout figures. It does not verify a program or grant testing permission.
 
 2. **`workspace audit-dependencies`** — run standard SCA tools
    (`pip-audit`/`npm audit`/`osv-scanner`/`cargo audit`, as applicable) against

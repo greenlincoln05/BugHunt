@@ -62,7 +62,10 @@ Use a new output filename for each retrieval; existing evidence is not overwritt
 The candidate policy can predate the scope request. Review the current official
 program page, advertised bounty, policy exclusions, and permission for the
 intended activity. A dossier does not import or verify a program automatically.
-Unsupported asset types remain metadata rather than local URL scope rules.
+For a complete dossier with a bounty-eligible `SOURCE_CODE` asset,
+`opportunity promote` imports one exact source URL plus payout figures you
+checked; it leaves the program unverified and testing unauthorized. Unsupported
+asset types remain metadata rather than local URL scope rules.
 
 ## Record an actual receipt once
 
