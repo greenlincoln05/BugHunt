@@ -24,7 +24,7 @@ preflight with no inference (`model_access.py`), and a next-action tracker
 (`progress.py`). Discovery and source triage now reject explicit program-wide
 no-cash policy statements even when HackerOne metadata still advertises
 bounties; promotion applies the same check to older saved opportunities. The
-local suite has 272 passing tests at this milestone.
+local suite has 280 passing tests at this milestone.
 
 Gap: everything from "here's a cloned repo" to "here's a real, fixable bug in
 it" currently happens only when an agent session (this one, or another) is
@@ -41,12 +41,14 @@ Ordered roughly by how much it unblocks getting to a first real submission.
    program catalog, using the discovered candidate's identity and human-checked
    payout figures. It does not verify a program or grant testing permission.
 
-2. **`workspace audit-dependencies`** — run standard SCA tools
-   (`pip-audit`/`npm audit`/`osv-scanner`/`cargo audit`, as applicable) against
-   cloned source as a cheap lead generator. A version match alone is not a
-   finding: many programs exclude known dependency CVEs unless a complete
-   exploit chain shows impact in the scoped product. Check each program's
-   policy before investing time or drafting a report.
+2. **`workspace audit-dependencies`** — npm production-lockfile support is
+   built and exercised on the current Jitsi Meet clone. It isolates the
+   tracked root manifests and runs `npm audit` without installing packages or
+   using a paid model. Add `pip-audit`/`osv-scanner`/`cargo audit` for other
+   ecosystems when a selected source candidate needs them. A version match
+   alone is not a finding: many programs exclude known dependency CVEs unless
+   a complete exploit chain shows impact in the scoped product. Check each
+   program's policy before investing time or drafting a report.
 
 3. **A written "find real bugs in a clone" runbook** (`docs/find-and-fix.md`)
    — completed. It keeps local research bounded, separates a reproduced code

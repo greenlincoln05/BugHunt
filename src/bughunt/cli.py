@@ -70,6 +70,10 @@ def build_parser():
     item.add_argument("--url", required=True, help="https:// Git remote; see a dossier's source_code_assets[].reference")
     item.add_argument("--into", type=Path, required=True, help="Destination directory; must not already exist")
     item.add_argument("--depth", type=int, default=1, help="Shallow-clone depth (1-1000)")
+    item = workspace.add_parser("audit-dependencies", help="Check tracked npm lockfile against free advisories; unverified leads only")
+    item.add_argument("--workspace", type=Path, required=True, help="Existing Git checkout; root package.json and package-lock.json required")
+    item.add_argument("--output", type=Path, required=True, help="New JSON result path outside the source checkout")
+    item.add_argument("--timeout", type=int, default=120, help="npm audit timeout in seconds (30-600)")
     item = workspace.add_parser("analyze", help="Gated, bounded model review of chosen files in a local checkout; produces unverified candidates only")
     item.add_argument("--workspace", type=Path, required=True, help="Existing Git checkout of the program's own declared source; never a live target")
     item.add_argument("--file", dest="files", action="append", required=True, help="Relative path inside the workspace; repeat for each file (max 20)")
@@ -334,6 +338,9 @@ def dispatch(args, store):
         except sqlite3.Error:
             summary["audit_warning"] = "The call was paid for and saved to --output, but its audit entry could not be written."
         return summary
+    if args.command == "workspace" and args.action == "audit-dependencies":
+        from .dependency_audit import audit_npm_dependencies
+        return audit_npm_dependencies(args.workspace, args.output, timeout_seconds=args.timeout)
     if args.command == "workspace":
         from .workspace import clone_source
         result = clone_source(args.url, args.into, depth=args.depth)

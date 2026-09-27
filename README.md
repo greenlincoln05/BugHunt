@@ -294,8 +294,24 @@ python run_bughunt.py workspace clone --url https://github.com/OWNER/REPO --into
 
 `workspace clone` accepts only a plain `https://` Git remote with no embedded
 credentials, refuses to overwrite an existing destination, and is bounded by a
-timeout — it never clones over `ssh://`/`git://`/`ext::`/`file://`. Once a patch
-author (Astra or otherwise, or you) has made a change in that checkout, capture
+timeout — it never clones over `ssh://`/`git://`/`ext::`/`file://`. For a clone
+with a tracked root `package-lock.json`, a free dependency-advisory pass can
+produce local leads:
+
+```powershell
+python run_bughunt.py workspace audit-dependencies --workspace C:\path\to\checkout --output reports/audit/npm.json
+```
+
+This copies only the tracked root npm manifests into a temporary directory,
+queries the official npm advisory registry for production dependencies, and
+runs no install or package scripts. The selected lockfile's package names and
+versions are sent to npm. It needs local npm and network access, caps its
+runtime, and never sends API-model requests. Results are **unverified leads**:
+a vulnerable version alone does not establish reachability, security impact,
+program eligibility, or a bounty. Check the exact advisory and policy before
+investing in a local proof. Other package ecosystems are not yet supported by
+this command. Once a patch author (Astra or otherwise, or you) has made a change
+in that checkout, capture
 real evidence instead of typing a freehand claim:
 
 ```powershell
