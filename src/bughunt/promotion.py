@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .catalog import validate_program
+from .hackerone import policy_explicitly_nonpaying
 from .scope import _parse_rule
 from .workspace import _validate_https_git_url
 
@@ -52,7 +53,8 @@ def promote(store, opportunity_id, dossier_path: Path, source_url: str,
             payout_min: str, payout_max: str, *, clock):
     candidate = store.get("opportunities", opportunity_id)
     if (candidate.get("platform") != "hackerone" or candidate.get("offers_bounties") is not True
-            or candidate.get("submission_state") != "open"):
+            or candidate.get("submission_state") != "open"
+            or policy_explicitly_nonpaying(candidate.get("policy"))):
         raise ValueError("Opportunity is not an open HackerOne bounty candidate")
     try:
         with Path(dossier_path).open("r", encoding="utf-8") as handle:

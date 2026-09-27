@@ -23,6 +23,30 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 PROGRAMS_URL = "https://api.hackerone.com/v1/hackers/programs?page[number]=1&page[size]=100"
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
+# Program metadata can still advertise bounties after the policy suspends them.
+# Match only unqualified statements that the whole program has no cash reward;
+# asset-specific exclusions and severity-specific no-bounty rules are different.
+_NO_CASH_POLICY = re.compile(
+    r"\b(?:vulnerability disclosure program without monetary rewards"
+    r"|we do not offer monetary payouts for vulnerability discoveries"
+    r"|no monetary payouts for vulnerability discoveries"
+    r"|does not offer monetary bounties for security reports submitted through this program"
+    r"|no financial rewards will be awarded for any submissions"
+    r"|has suspended bounties while we process our backlog"
+    r"|monetary (?:bug )?bounties (?:are|remain|have been) "
+    r"(?:(?:currently|temporarily) )?suspended)\b",
+    re.IGNORECASE,
+)
+
+
+def policy_explicitly_nonpaying(policy: object) -> bool:
+    """Recognize an explicit, program-wide cash-bounty disclaimer.
+
+    This is a conservative candidate filter, not a substitute for reading the
+    current policy. Unknown or ambiguous wording stays eligible for review.
+    """
+    return isinstance(policy, str) and bool(_NO_CASH_POLICY.search(policy))
+
 
 class AdapterError(ValueError):
     """Sanitized failure suitable for local status reports and retry decisions."""
@@ -259,6 +283,7 @@ class HackerOneClient:
                 if (program["visibility"] == "public_mode"
                         and program["submission_state"] == "open"
                         and program["offers_bounties"] is True
+                        and not policy_explicitly_nonpaying(program["policy"])
                         and program["id"] not in seen_ids):
                     programs.append(program)
                     seen_ids.add(program["id"])

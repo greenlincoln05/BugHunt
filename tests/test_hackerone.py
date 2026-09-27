@@ -90,8 +90,14 @@ class HackerOneTests(unittest.TestCase):
         client, _ = self.client(Response(page([
             record("1"), record("2", state="soft_launched"),
             record("3", submission_state="closed"), record("4", offers_bounties=False),
+            record("5", policy="This is a vulnerability disclosure program without monetary rewards (bounties)."),
+            record("6", policy="We do not offer monetary payouts for vulnerability discoveries."),
+            record("7", policy="No bounty for informational findings; valid security bugs are paid."),
+            record("8", policy="Nextcloud does not offer monetary bounties for security reports submitted through this program."),
+            record("9", policy="No financial rewards will be awarded for any submissions, regardless of severity."),
+            record("10", policy="Discourse has suspended bounties while we process our backlog."),
         ])))
-        self.assertEqual([item["id"] for item in client.list_programs()["programs"]], ["h1-1"])
+        self.assertEqual([item["id"] for item in client.list_programs()["programs"]], ["h1-1", "h1-7"])
 
     def test_legal_null_metadata_does_not_pause_discovery_or_imply_eligibility(self):
         client, _ = self.client(Response(page([

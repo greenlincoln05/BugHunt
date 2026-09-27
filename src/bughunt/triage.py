@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 
 from .dossier import fetch_program_dossier
-from .hackerone import AdapterError
+from .hackerone import AdapterError, policy_explicitly_nonpaying
 
 MIN_CANDIDATES, MAX_CANDIDATES = 1, 200
 MIN_PAGES, MAX_PAGES = 1, 20
@@ -60,7 +60,10 @@ def triage_candidates(client, opportunities, state_dir, *, max_candidates=25, ma
     state_path = directory / "status.json"
     state = _load_state(state_path)
     checked = state["checked"]
-    pending = [row for row in opportunities if recheck or row["id"] not in checked]
+    eligible_ids = {row["id"] for row in opportunities
+                    if not policy_explicitly_nonpaying(row.get("policy"))}
+    pending = [row for row in opportunities if row["id"] in eligible_ids
+               and (recheck or row["id"] not in checked)]
 
     attempted, stopped_early, stop_reason = [], False, None
     for candidate in pending[:max_candidates]:
@@ -86,7 +89,8 @@ def triage_candidates(client, opportunities, state_dir, *, max_candidates=25, ma
 
     _save_json(state_path, state)
     shortlist = sorted(
-        ({"id": key, **value} for key, value in checked.items() if (value.get("source_code_assets") or 0) > 0),
+        ({"id": key, **value} for key, value in checked.items()
+         if key in eligible_ids and (value.get("source_code_assets") or 0) > 0),
         key=lambda row: (row.get("name") or "").casefold())
     shortlist_path = directory / "source_candidates.json"
     _save_json(shortlist_path, {

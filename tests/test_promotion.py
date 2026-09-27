@@ -100,6 +100,16 @@ class PromotionTests(unittest.TestCase):
         self.addCleanup(store.close)
         self.assertEqual(store.list("programs"), [])
 
+    def test_policy_without_cash_blocks_stale_bounty_metadata(self):
+        store = Store(self.db)
+        candidate = store.get("opportunities", "h1-42")
+        candidate["policy"] = "This is a vulnerability disclosure program without monetary rewards (bounties)."
+        store.save("opportunities", candidate)
+        store.close()
+        code, _, error = self.run_promote()
+        self.assertEqual(code, 2)
+        self.assertIn("not an open HackerOne bounty candidate", error)
+
 
 if __name__ == "__main__":
     unittest.main()

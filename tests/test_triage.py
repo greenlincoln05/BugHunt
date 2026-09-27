@@ -95,6 +95,18 @@ class TriageTests(unittest.TestCase):
         shortlist = json.loads(Path(result["shortlist_file"]).read_text(encoding="utf-8"))
         self.assertEqual(shortlist["candidates"], [])  # recheck flipped it to no longer eligible
 
+    def test_cached_nonpaying_policy_neither_costs_requests_nor_stays_shortlisted(self):
+        candidate = opportunity("h1-1", "no_cash")
+        client = self.client(Response(scopes_page([scope_record(asset_type="SOURCE_CODE")])),
+                             Response({"data": []}))
+        triage_candidates(client, [candidate], self.state_dir)
+        candidate["policy"] = "We do not offer monetary payouts for vulnerability discoveries."
+        result = triage_candidates(self.client(), [candidate], self.state_dir)
+        self.assertEqual(result["attempted"], 0)
+        self.assertEqual(result["source_eligible"], 0)
+        shortlist = json.loads(Path(result["shortlist_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(shortlist["candidates"], [])
+
     def test_max_candidates_bounds_one_batch_and_reports_remaining(self):
         candidates = [opportunity(f"h1-{n}", f"prog{n}") for n in range(3)]
         client = self.client(*(

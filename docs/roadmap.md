@@ -21,7 +21,10 @@ dossiers with source-code-asset detection (`dossier.py`), a batch OSS
 shortlist (`triage.py`), a bounded local clone helper (`workspace.py`), local
 regression-evidence capture (`patchwork.py`), an OpenAI/Daybreak metadata
 preflight with no inference (`model_access.py`), and a next-action tracker
-(`progress.py`). The local suite has 269 passing tests at this milestone.
+(`progress.py`). Discovery and source triage now reject explicit program-wide
+no-cash policy statements even when HackerOne metadata still advertises
+bounties; promotion applies the same check to older saved opportunities. The
+local suite has 272 passing tests at this milestone.
 
 Gap: everything from "here's a cloned repo" to "here's a real, fixable bug in
 it" currently happens only when an agent session (this one, or another) is
