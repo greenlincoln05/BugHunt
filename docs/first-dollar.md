@@ -4,6 +4,11 @@ Earning a bounty requires a reproducible finding, a valid submission, program
 acceptance, and actual payment. No real payment is currently recorded in this
 checkout's production database.
 
+For preventive code improvements that do not establish a new vulnerability,
+see [Rewards for defensive contributions](defensive-rewards.md). It distinguishes
+patch rewards from finding bounties and documents the upstream acceptance and
+waiting period required before a reward submission.
+
 ## Progress and next actions
 
 Run from the repository root with Python 3.11 or newer:
