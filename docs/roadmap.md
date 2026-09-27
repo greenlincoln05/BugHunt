@@ -55,11 +55,11 @@ Ordered roughly by how much it unblocks getting to a first real submission.
    evidence` → draft) when directed to a specific one. This is where an
    actual first submission comes from; nothing above replaces doing it.
 
-5. **Tighten submission drafting** — `finding patch --evidence-file` already
-   removes retyping between evidence capture and the patch record; extend the
-   same idea to `submission draft`/`export` so a finding with captured
-   evidence needs the least possible manual re-entry before it's a reviewable
-   bundle.
+5. **Tighten submission drafting** — partially completed. `finding patch
+   --evidence-file` removes retyping between evidence capture and the patch
+   record, and `submission export --format markdown` renders the confirmed
+   finding as a local report draft. Next: carry proof-of-concept attachments
+   into a private review bundle with minimal manual re-entry.
 
 6. **`progress` covers the whole funnel** — today it tracks the original
    submission/payment lifecycle. Extend it to show triage → clone → finding →

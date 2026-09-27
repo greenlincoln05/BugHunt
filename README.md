@@ -146,6 +146,7 @@ python run_bughunt.py finding confirm FINDING_ID --evidence "Reference to reprod
 python run_bughunt.py finding patch FINDING_ID --status verified --reference fixes/issue.patch --verification "Regression test command and result"
 python run_bughunt.py submission draft FINDING_ID
 python run_bughunt.py submission export SUBMISSION_ID --output reports/submission.json
+python run_bughunt.py submission export SUBMISSION_ID --format markdown --output reports/submission.md
 ```
 
 `finding brief FINDING_ID [--output brief.json]` writes the patch task for
@@ -315,10 +316,12 @@ python run_bughunt.py finding patch FINDING_ID --status verified --evidence-file
 is refused — review it yourself and fix it, or record `--status ready` instead
 while it's still in progress.
 
-The exported JSON includes the program policy, reproduction steps, impact,
-confirmation evidence, patch reference, and submission state. Attach actual patch
-and proof-of-concept files separately in the official portal. Export refuses to
-overwrite an existing file and never sends anything.
+The JSON export includes the program policy, reproduction steps, impact,
+confirmation evidence, patch reference, and submission state. The Markdown
+export turns those finding fields into a report draft for review and copy/paste
+into the official portal. Attach actual patch and proof-of-concept files
+separately. Both formats refuse to overwrite an existing file and never send
+anything. Keep exports with report details out of public Git.
 
 After submitting through the official portal, record its ID. Record acceptance
 only when the platform acknowledges it:

@@ -139,6 +139,8 @@ def build_parser():
         item.add_argument("id", help="Finding ID for draft, submission ID otherwise")
         if action == "export":
             item.add_argument("--output", type=Path, required=True)
+            item.add_argument("--format", choices=["json", "markdown"], default="json",
+                              help="Local export format (default: json); neither format submits a report")
         elif action == "record":
             item.add_argument("--external-id", required=True)
         elif action == "reject":
@@ -416,11 +418,16 @@ def dispatch(args, store):
             args.output.parent.mkdir(parents=True, exist_ok=True)
             # Exclusive create avoids overwriting evidence or other local files.
             with args.output.open("x", encoding="utf-8") as handle:
-                json.dump(bundle, handle, indent=2, ensure_ascii=False, allow_nan=False)
-                handle.write("\n")
+                if args.format == "markdown":
+                    from .submission_format import render_submission_markdown
+                    handle.write(render_submission_markdown(bundle))
+                else:
+                    json.dump(bundle, handle, indent=2, ensure_ascii=False, allow_nan=False)
+                    handle.write("\n")
             with store.transaction():
-                app._audit("submission.exported", "submissions", bundle["submission"], output=str(args.output.resolve()))
-            return {"output": str(args.output.resolve()), "submitted": False}
+                app._audit("submission.exported", "submissions", bundle["submission"],
+                           output=str(args.output.resolve()), format=args.format)
+            return {"output": str(args.output.resolve()), "format": args.format, "submitted": False}
         if args.action == "record":
             return app.record_submission(args.id, args.external_id)
         if args.action == "reject":

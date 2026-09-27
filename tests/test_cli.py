@@ -67,6 +67,41 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(main(arguments), 2)
             self.assertEqual(original, target.read_bytes())
 
+    def test_markdown_export_is_reviewable_and_does_not_change_submission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db = root / "demo.db"
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["--db", str(db), "demo", "--out", str(root / "reports")]), 0)
+            store = Store(db)
+            try:
+                submission = store.list("submissions")[0]
+                finding = store.get("findings", submission["finding_id"])
+                original = store.get("submissions", submission["id"])
+            finally:
+                store.close()
+            target = root / "submission.md"
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(["--db", str(db), "submission", "export", submission["id"],
+                                       "--output", str(target), "--format", "markdown"]), 0)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["format"], "markdown")
+            self.assertFalse(result["submitted"])
+            report = target.read_text(encoding="utf-8")
+            self.assertIn("# " + finding["title"], report)
+            self.assertIn(finding["target"], report)
+            self.assertIn(finding["reproduction"], report)
+            self.assertIn(finding["impact"], report)
+            self.assertIn(finding["confirmation_evidence"], report)
+            self.assertIn(finding["verification"], report)
+            self.assertIn("attach the actual proof-of-concept", report)
+            store = Store(db)
+            try:
+                self.assertEqual(store.get("submissions", submission["id"]), original)
+                self.assertEqual(store.snapshot()["audit"][-1]["details"]["format"], "markdown")
+            finally:
+                store.close()
+
 
 if __name__ == "__main__":
     unittest.main()
