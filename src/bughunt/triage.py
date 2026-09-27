@@ -1,5 +1,5 @@
 """Bounded batch triage over already-discovered candidates: which ones declare
-a source-code asset (see `dossier.source_code_assets`). This makes only small,
+a bounty-eligible source-code asset (see `dossier.source_code_assets`). This makes only small,
 bounded requests to the same official structured_scopes endpoint
 `opportunity dossier` already uses, and never contacts any candidate's assets.
 
@@ -61,9 +61,16 @@ def triage_candidates(client, opportunities, state_dir, *, max_candidates=25, ma
     state = _load_state(state_path)
     checked = state["checked"]
     eligible_ids = {row["id"] for row in opportunities
-                    if not policy_explicitly_nonpaying(row.get("policy"))}
+                    if row.get("platform") == "hackerone"
+                    and row.get("submission_state") == "open"
+                    and row.get("offers_bounties") is True
+                    and not policy_explicitly_nonpaying(row.get("policy"))}
+    # Older triage state counted every SOURCE_CODE scope, including assets the
+    # program marked ineligible for a bounty. Revisit those rows incrementally
+    # instead of carrying their stale shortlist result forward.
     pending = [row for row in opportunities if row["id"] in eligible_ids
-               and (recheck or row["id"] not in checked)]
+               and (recheck or row["id"] not in checked
+                    or "bounty_source_code_assets" not in checked[row["id"]])]
 
     attempted, stopped_early, stop_reason = [], False, None
     for candidate in pending[:max_candidates]:
@@ -75,14 +82,19 @@ def triage_candidates(client, opportunities, state_dir, *, max_candidates=25, ma
                 break
             checked[candidate["id"]] = {"checked_at": now.isoformat(), "name": candidate.get("name"),
                                          "handle": candidate.get("handle"), "error": str(error),
-                                         "source_code_assets": None, "references": [], "complete": False}
+                                         "source_code_assets": None, "bounty_source_code_assets": None,
+                                         "references": [], "complete": False}
             attempted.append(candidate["id"])
             continue
+        eligible_sources = [asset for asset in dossier["source_code_assets"]
+                            if asset.get("eligible_for_bounty") is True
+                            and asset.get("eligible_for_submission") is True]
         checked[candidate["id"]] = {
             "checked_at": now.isoformat(), "name": candidate.get("name"), "handle": candidate["handle"],
             "error": None, "source_code_assets": len(dossier["source_code_assets"]),
+            "bounty_source_code_assets": len(eligible_sources),
             "references": [asset.get("reference") or asset.get("asset_identifier")
-                            for asset in dossier["source_code_assets"]],
+                            for asset in eligible_sources],
             "complete": dossier["completeness"]["complete"],
         }
         attempted.append(candidate["id"])
@@ -90,7 +102,7 @@ def triage_candidates(client, opportunities, state_dir, *, max_candidates=25, ma
     _save_json(state_path, state)
     shortlist = sorted(
         ({"id": key, **value} for key, value in checked.items()
-         if key in eligible_ids and (value.get("source_code_assets") or 0) > 0),
+         if key in eligible_ids and (value.get("bounty_source_code_assets") or 0) > 0),
         key=lambda row: (row.get("name") or "").casefold())
     shortlist_path = directory / "source_candidates.json"
     _save_json(shortlist_path, {

@@ -251,14 +251,19 @@ past a handful, so triage them in a bounded, resumable batch instead:
 python run_bughunt.py opportunity triage --max-candidates 25 --out reports/triage
 ```
 
-This makes one small, bounded request per not-yet-checked candidate already in
-`opportunity list` — never more than `--max-candidates` in one run — and writes
-`reports/triage/source_candidates.json`, a shortlist of candidates that declare
-a source-code asset. Re-running skips whatever it already checked (`--recheck`
-to redo them); it stops itself early on an authentication or rate-limit error
+This makes one small, bounded request per not-yet-checked, open HackerOne
+cash-bounty candidate already in `opportunity list` — never more than
+`--max-candidates` in one run — and writes
+`reports/triage/source_candidates.json`, a shortlist of candidates with a
+source-code asset marked eligible for both submission and bounty. The full
+dossier still shows nonpaying assets for review. Re-running skips whatever it
+already checked; use `--recheck` to redo them. It stops itself early on an
+authentication or rate-limit error
 instead of burning through the rest of the batch the same way, and one bad
 candidate's error never blocks the others. Exit code `4` means it stopped early
 for that reason — check `stop_reason` in the output.
+Older triage rows that did not record asset-level bounty eligibility are
+rechecked within the same batch limit before they can appear in the shortlist.
 
 For one candidate's full detail — every scope entry and exclusion, not just the
 source-code count — `opportunity dossier` still works the same way it always has:

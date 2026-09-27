@@ -60,7 +60,7 @@ def build_parser():
     item.add_argument("--source-url", required=True, help="Exact bounty-eligible SOURCE_CODE URL selected from the dossier")
     item.add_argument("--payout-min", required=True, help="Advertised minimum in the program's currency, checked by you")
     item.add_argument("--payout-max", required=True, help="Advertised maximum in the program's currency, checked by you")
-    item = opportunity.add_parser("triage", help="Bounded batch check of already-discovered candidates for a declared source-code asset")
+    item = opportunity.add_parser("triage", help="Bounded batch check of open cash-bounty candidates for a payable source-code asset")
     item.add_argument("--max-candidates", type=int, default=25)
     item.add_argument("--max-pages", type=int, default=1)
     item.add_argument("--recheck", action="store_true", help="Re-check candidates already recorded in the triage state file")

@@ -51,7 +51,8 @@ class Opener:
 
 
 def opportunity(entity_id, handle, name="Example"):
-    return {"id": entity_id, "handle": handle, "name": name}
+    return {"id": entity_id, "handle": handle, "name": name, "platform": "hackerone",
+            "submission_state": "open", "offers_bounties": True}
 
 
 class TriageTests(unittest.TestCase):
@@ -78,6 +79,55 @@ class TriageTests(unittest.TestCase):
         shortlist = json.loads(Path(result["shortlist_file"]).read_text(encoding="utf-8"))
         self.assertEqual([row["id"] for row in shortlist["candidates"]], ["h1-1"])
         self.assertEqual(shortlist["candidates"][0]["references"], ["https://github.com/a/a"])
+
+    def test_nonpayable_source_scope_is_not_shortlisted(self):
+        candidates = [opportunity("h1-1", "unpaid"), opportunity("h1-2", "paid")]
+        client = self.client(
+            Response(scopes_page([scope_record(asset_type="SOURCE_CODE", reference="https://github.com/a/unpaid",
+                                                eligible_for_bounty=False)])),
+            Response({"data": []}),
+            Response(scopes_page([scope_record(asset_type="SOURCE_CODE", reference="https://github.com/a/paid",
+                                                eligible_for_submission=False)])),
+            Response({"data": []}),
+        )
+        result = triage_candidates(client, candidates, self.state_dir)
+        self.assertEqual(result["source_eligible"], 0)
+        state = json.loads(Path(result["state_file"]).read_text(encoding="utf-8"))
+        for row in state["checked"].values():
+            self.assertEqual(row["source_code_assets"], 1)
+            self.assertEqual(row["bounty_source_code_assets"], 0)
+            self.assertEqual(row["references"], [])
+
+    def test_closed_or_non_bounty_program_is_not_queried_or_shortlisted(self):
+        candidates = [opportunity("h1-1", "paid"), opportunity("h1-2", "closed"),
+                      opportunity("h1-3", "noncash")]
+        candidates[1]["submission_state"] = "closed"
+        candidates[2]["offers_bounties"] = False
+        client = self.client(
+            Response(scopes_page([scope_record(asset_type="SOURCE_CODE")])),
+            Response({"data": []}),
+        )
+        result = triage_candidates(client, candidates, self.state_dir)
+        self.assertEqual(result["attempted"], 1)
+        self.assertEqual(result["source_eligible"], 1)
+        state = json.loads(Path(result["state_file"]).read_text(encoding="utf-8"))
+        self.assertEqual(set(state["checked"]), {"h1-1"})
+
+    def test_old_source_count_is_rechecked_before_shortlisting(self):
+        self.state_dir.mkdir(parents=True)
+        (self.state_dir / "status.json").write_text(json.dumps({
+            "schema_version": 1,
+            "checked": {"h1-1": {"name": "Old", "handle": "old", "source_code_assets": 1,
+                                  "references": ["https://github.com/a/unpaid"], "complete": True}},
+        }), encoding="utf-8")
+        client = self.client(
+            Response(scopes_page([scope_record(asset_type="SOURCE_CODE", reference="https://github.com/a/unpaid",
+                                                eligible_for_bounty=False)])),
+            Response({"data": []}),
+        )
+        result = triage_candidates(client, [opportunity("h1-1", "old")], self.state_dir)
+        self.assertEqual(result["attempted"], 1)
+        self.assertEqual(result["source_eligible"], 0)
 
     def test_already_checked_candidates_are_skipped_unless_recheck(self):
         candidates = [opportunity("h1-1", "alpha")]
