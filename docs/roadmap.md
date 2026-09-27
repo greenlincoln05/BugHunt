@@ -21,7 +21,7 @@ dossiers with source-code-asset detection (`dossier.py`), a batch OSS
 shortlist (`triage.py`), a bounded local clone helper (`workspace.py`), local
 regression-evidence capture (`patchwork.py`), an OpenAI/Daybreak metadata
 preflight with no inference (`model_access.py`), and a next-action tracker
-(`progress.py`). 204 tests, all passing.
+(`progress.py`). The local suite had 266 passing tests at the last full run.
 
 Gap: everything from "here's a cloned repo" to "here's a real, fixable bug in
 it" currently happens only when an agent session (this one, or another) is
@@ -43,24 +43,17 @@ Ordered roughly by how much it unblocks getting to a first real submission.
    human to fill in payout figures and run `program verify` themselves — the
    verification attestation doesn't move, only the retyping goes away.
 
-2. **`workspace audit-dependencies`** — the highest-confidence, lowest-cost
-   source of real findings doesn't need any bug-finding intelligence at all:
-   run standard, well-known SCA tools (`pip-audit`/`npm audit`/`osv-scanner`/
-   `cargo audit`, whichever apply to the cloned repo) against a `workspace
-   clone` checkout and cross-reference known CVEs in its actual pinned
-   dependencies. Many programs pay bounties specifically for "you're shipping
-   a dependency with a known CVE" reports. This is mechanical, bounded,
-   local-only, and entirely buildable now — likely the single highest-value
-   Phase 1 item.
+2. **`workspace audit-dependencies`** — run standard SCA tools
+   (`pip-audit`/`npm audit`/`osv-scanner`/`cargo audit`, as applicable) against
+   cloned source as a cheap lead generator. A version match alone is not a
+   finding: many programs exclude known dependency CVEs unless a complete
+   exploit chain shows impact in the scoped product. Check each program's
+   policy before investing time or drafting a report.
 
 3. **A written "find real bugs in a clone" runbook** (`docs/find-and-fix.md`)
-   — formalize how an agent session should work a cloned workspace: run
-   dependency auditing first (item 2), then targeted review of the usual
-   high-yield areas (auth, deserialization, path/command handling, SSRF-prone
-   outbound calls, injection sinks), then a regression test, then `finding
-   evidence`. This isn't code — it's making "Astra's" approach consistent
-   across sessions instead of ad hoc each time, so quality doesn't depend on
-   which session happens to be running.
+   — completed. It keeps local research bounded, separates a reproduced code
+   behavior from program-eligible security impact, and requires a private
+   PoC before a report is drafted.
 
 4. **Actually run the loop** — using items 2-3, work real candidates from the
    triage shortlist end to end (clone → audit/analyze → patch → `finding
