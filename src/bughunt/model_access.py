@@ -7,6 +7,7 @@ Access caveat: https://developers.openai.com/api/docs/guides/safety-checks/cyber
 """
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,10 +17,12 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
+from .fsutil import gate_state_dir, write_json_atomic
+
 
 MODELS_URL = "https://api.openai.com/v1/models/"
-DEFAULT_ATTESTATION_PATH = Path(".bughunt/model_access.json")
 MIN_ATTESTATION_HOURS, MAX_ATTESTATION_HOURS = 1, 168
+MAX_NOTE_CHARS = 500
 MAX_RESPONSE_BYTES = 64 * 1024
 REQUEST_TIMEOUT_SECONDS = 20
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,511}\Z")
@@ -163,47 +166,71 @@ def model_readiness(environ=None, check_access=False, opener=None):
     return result
 
 
-def _write_json_atomic(path, document):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(document, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
-    temporary.replace(path)
+def _fingerprint(environment):
+    """Hash of the configured model + organization + project (never the key)."""
+    model = environment.get("BUGHUNT_OPENAI_MODEL")
+    if not _present(model) or not _MODEL_ID.fullmatch(model.strip()):
+        return None
+    parts = [model.strip(), (environment.get("OPENAI_ORG_ID") or "").strip(), (environment.get("OPENAI_PROJECT_ID") or "").strip()]
+    return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()
 
 
-def record_access_attestation(note, *, valid_hours=24, path=DEFAULT_ATTESTATION_PATH, clock=None):
+def default_attestation_path():
+    return gate_state_dir() / "model_access.json"
+
+
+def record_access_attestation(note, *, valid_hours=24, environ=None, path=None, clock=None):
     """Record a time-limited human statement that Trusted Access is actually granted.
 
     ``model check`` can only show that a key/model pair is retrievable; it cannot
     prove approval, and its own output says so. This attestation is the deliberate
-    human step -- the same role ``program verify`` plays for scope -- and it
-    expires so a revoked or changed approval cannot linger unnoticed. It stores
-    no credentials, only the note and the validity window.
+    human step -- the same role ``program verify`` plays for scope. It is bound to
+    a hash of the configured model, organization, and project, so changing any of
+    them needs a new attestation, and it expires so a revoked approval cannot
+    linger. It stores no credentials, only the note, the hash, and the window.
     """
+    environment = os.environ if environ is None else environ
     note = note.strip() if isinstance(note, str) else ""
-    if not note:
-        raise ValueError("Attestation note must not be blank")
+    if not note or len(note) > MAX_NOTE_CHARS:
+        raise ValueError(f"Attestation note must be 1-{MAX_NOTE_CHARS} characters")
+    key = environment.get("OPENAI_API_KEY")
+    if _present(key) and key.strip() in note:
+        raise ValueError("Attestation note contains the API key; remove it (notes are stored in plain text)")
     if type(valid_hours) is not int or not MIN_ATTESTATION_HOURS <= valid_hours <= MAX_ATTESTATION_HOURS:
         raise ValueError(f"valid_hours must be an integer between {MIN_ATTESTATION_HOURS} and {MAX_ATTESTATION_HOURS}")
+    fingerprint = _fingerprint(environment)
+    if fingerprint is None:
+        raise ValueError("Set BUGHUNT_OPENAI_MODEL to the exact approved model ID first: the attestation is bound to it")
     now = clock() if clock is not None else datetime.now(timezone.utc)
-    document = {"schema_version": 1, "note": note, "verified_at": now.isoformat(),
-                "expires_at": (now + timedelta(hours=valid_hours)).isoformat()}
-    _write_json_atomic(path, document)
+    document = {"schema_version": 2, "note": note, "verified_at": now.isoformat(),
+                "expires_at": (now + timedelta(hours=valid_hours)).isoformat(), "fingerprint": fingerprint}
+    write_json_atomic(path if path is not None else default_attestation_path(), document)
     return document
 
 
-def access_attestation_status(path=DEFAULT_ATTESTATION_PATH, clock=None):
-    """Return whether a current human attestation exists; never raises for bad files."""
-    path = Path(path)
+def access_attestation_status(path=None, clock=None, environ=None):
+    """Return whether a current, matching human attestation exists; never raises for bad files."""
+    path = Path(path) if path is not None else default_attestation_path()
+    environment = os.environ if environ is None else environ
     now = clock() if clock is not None else datetime.now(timezone.utc)
     if not path.exists():
         return {"attested": False, "reason": "No access attestation recorded; run `model verify` first."}
+    invalid = {"attested": False, "reason": "Access attestation file is unreadable or invalid; record a new one."}
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
+        verified_at = datetime.fromisoformat(document["verified_at"])
         expires_at = datetime.fromisoformat(document["expires_at"])
-        note = document["note"]
+        note, fingerprint = document["note"], document["fingerprint"]
     except (OSError, ValueError, KeyError, TypeError):
-        return {"attested": False, "reason": "Access attestation file is unreadable or invalid; record a new one."}
-    if expires_at.tzinfo is None or expires_at <= now:
+        return invalid
+    if (verified_at.tzinfo is None or expires_at.tzinfo is None or not isinstance(note, str) or not note.strip()
+            or not isinstance(fingerprint, str) or verified_at > now or expires_at <= verified_at
+            or expires_at - verified_at > timedelta(hours=MAX_ATTESTATION_HOURS)):
+        return invalid
+    if expires_at <= now:
         return {"attested": False, "reason": f"Access attestation expired at {document['expires_at']}; record a new one."}
+    current = _fingerprint(environment)
+    if current is None or current != fingerprint:
+        return {"attested": False, "reason": "The configured model, organization, or project differs from what was "
+                                              "attested; run `model verify` again for the current configuration."}
     return {"attested": True, "reason": None, "note": note, "expires_at": document["expires_at"]}

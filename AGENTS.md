@@ -31,6 +31,9 @@
   input-size cap. Never add a path that skips or resets the local budget, retries
   a provider error automatically, or writes the model's output into `findings`,
   `submissions`, or `payments` — model output is candidate text for human review.
+  Gate state lives in `~/.bughunt`/`BUGHUNT_HOME`, never the cwd or a checkout;
+  `model verify` and raising the budget require a person at a terminal — never
+  script, pipe, or otherwise automate around that check.
   Credits running low is a budget limit, not an emergency: it never justifies
   skipping a gate, a review step, or a scope check.
 - See [docs/roadmap.md](docs/roadmap.md) for the ordered Phase 1 (now) / Phase 2

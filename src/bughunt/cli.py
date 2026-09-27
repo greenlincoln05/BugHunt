@@ -27,9 +27,10 @@ def build_parser():
     item.add_argument("--valid-hours", type=int, default=24, help="1-168; the attestation expires so a revoked approval cannot linger")
     budget_actions = model.add_parser("budget", help="Local hard cap on paid calls, enforced before each one").add_subparsers(dest="budget_action", required=True)
     budget_actions.add_parser("status")
-    item = budget_actions.add_parser("set", help="Set the absolute caps (usage is kept); raise deliberately when you load more credits")
+    item = budget_actions.add_parser("set", help="Set the absolute caps (usage is kept); raising them needs a person at a terminal")
     item.add_argument("--max-requests", type=int, required=True)
-    item.add_argument("--max-tokens", type=int, help="Optional cap on API-reported tokens")
+    item.add_argument("--max-tokens", type=int, help="Cap on API-reported tokens; omit to keep the existing token cap")
+    item.add_argument("--no-max-tokens", action="store_true", help="Remove the token cap")
     item = commands.add_parser("progress", help="Show first-dollar receipt evidence and next actions")
     item.add_argument("--out", type=Path, help="Also write first_dollar.json and first_dollar.md")
     item.add_argument("--source-db", type=Path, help="Read a live database from another checkout without modifying it; cannot combine with --db")
@@ -162,6 +163,20 @@ def build_parser():
     return parser
 
 
+def _confirm_human(action, phrase):
+    """Refuse unattended runs and require typed confirmation.
+
+    A speed bump against an agent or script granting itself access or credits,
+    not a security boundary: anything with a pseudo-terminal can still get past
+    it, so also set a spend limit on the provider-side project.
+    """
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise ValueError(f"{action} must be run by a person in an interactive terminal; "
+                         "it is refused when run unattended (by an agent, script, or pipe).")
+    if input(f'{action}. Type "{phrase}" to confirm: ').strip() != phrase:
+        raise ValueError(f"{action} was cancelled: the confirmation text did not match")
+
+
 def dispatch(args, store):
     app = Workflow(store)
     if args.command == "init":
@@ -170,6 +185,7 @@ def dispatch(args, store):
         from . import budget as spend_budget
         from .model_access import access_attestation_status, model_readiness, record_access_attestation
         if args.action == "verify":
+            _confirm_human("Attesting that Trusted Access is granted for the configured model", "I HAVE VERIFIED ACCESS")
             document = record_access_attestation(args.note, valid_hours=args.valid_hours)
             with store.transaction():
                 store.audit("model.access_attested", "model", "trusted-access", stamp(app.clock()),
@@ -178,10 +194,22 @@ def dispatch(args, store):
                     "notice": "This is your attestation, not a check of OpenAI's records; it expires."}
         if args.action == "budget":
             if args.budget_action == "set":
-                result = spend_budget.set_budget(args.max_requests, max_tokens=args.max_tokens)
+                if args.no_max_tokens and args.max_tokens is not None:
+                    raise ValueError("Use either --max-tokens or --no-max-tokens, not both")
+                current = spend_budget.status()
+                max_tokens = (None if args.no_max_tokens else
+                              args.max_tokens if args.max_tokens is not None else spend_budget.KEEP)
+                cap_before = current["max_tokens"]
+                raises = (not current["configured"] or args.max_requests > current["max_requests"]
+                          or (cap_before is not None and (args.no_max_tokens or (args.max_tokens or 0) > cap_before)))
+                if raises:
+                    _confirm_human("Setting or raising the paid-call budget", "RAISE BUDGET")
+                result = spend_budget.set_budget(args.max_requests, max_tokens=max_tokens)
                 with store.transaction():
                     store.audit("model.budget_set", "model", "budget", stamp(app.clock()),
-                                {"max_requests": args.max_requests, "max_tokens": args.max_tokens})
+                                {"max_requests": result["max_requests"], "max_tokens": result["max_tokens"],
+                                 "previous_max_requests": current["max_requests"], "previous_max_tokens": cap_before,
+                                 "raised": raises})
                 return result
             return spend_budget.status()
         result = model_readiness(check_access=args.action == "check")
@@ -258,28 +286,42 @@ def dispatch(args, store):
         return {"files": DiscoveryWorker(store).export(args.out)}
     if args.command == "workspace" and args.action == "analyze":
         from .analysis import analyze_workspace
-        # Checked before any credit is spent: a name collision must not cost a paid call.
-        if args.output.exists():
-            raise ValueError("Output already exists; choose a new path (checked before any credit was spent)")
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        result = analyze_workspace(args.workspace, args.files, focus=args.focus,
-                                   max_input_bytes=args.max_input_bytes, max_output_tokens=args.max_output_tokens)
+        # Created exclusively BEFORE any credit is spent: this proves the path is free and
+        # writable, so a collision or unwritable location can never cost a paid call.
         try:
-            with args.output.open("x", encoding="utf-8") as handle:
-                json.dump(result, handle, indent=2, ensure_ascii=False, allow_nan=False)
-                handle.write("\n")
+            handle = args.output.open("x", encoding="utf-8")
+        except FileExistsError:
+            raise ValueError("Output already exists; choose a new path (checked before any credit was spent)") from None
+        try:
+            result = analyze_workspace(args.workspace, args.files, focus=args.focus,
+                                       max_input_bytes=args.max_input_bytes, max_output_tokens=args.max_output_tokens)
+        except BaseException:
+            handle.close()
+            args.output.unlink(missing_ok=True)
+            raise
+        payload = json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False) + "\n"
+        try:
+            with handle:
+                handle.write(payload)
         except OSError:
             # The call was already paid for; never lose its result to a write failure.
-            print(json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False), file=sys.stderr)
+            print(payload, file=sys.stderr)
             raise
-        with store.transaction():
-            store.audit("analysis.completed", "workspace", str(args.workspace.resolve()), stamp(app.clock()),
-                        {"files": len(result["files_sent"]), "candidates": len(result["candidates"]),
-                         "verified": sum(1 for row in result["candidates"] if row["verified_in_source"]),
-                         "tokens_used": result["tokens_used"], "output": str(args.output.resolve())})
-        return {"output": str(args.output.resolve()), "candidates": len(result["candidates"]),
-                "verified_in_source": sum(1 for row in result["candidates"] if row["verified_in_source"]),
-                "parse_error": result["parse_error"], "budget": result["budget"], "testing_authorized": False}
+        verified = sum(1 for row in result["candidates"] if row["verified_in_source"])
+        summary = {"output": str(args.output.resolve()), "candidates": len(result["candidates"]),
+                   "verified_in_source": verified, "parse_error": result["parse_error"],
+                   "budget": result["budget"], "accounting_error": result["accounting_error"],
+                   "testing_authorized": False}
+        try:
+            with store.transaction():
+                store.audit("analysis.completed", "workspace", str(args.workspace.resolve()), stamp(app.clock()),
+                            {"files": len(result["files_sent"]), "candidates": len(result["candidates"]),
+                             "verified": verified, "tokens_used": result["tokens_used"],
+                             "output": str(args.output.resolve())})
+        except sqlite3.Error:
+            summary["audit_warning"] = "The call was paid for and saved to --output, but its audit entry could not be written."
+        return summary
     if args.command == "workspace":
         from .workspace import clone_source
         result = clone_source(args.url, args.into, depth=args.depth)

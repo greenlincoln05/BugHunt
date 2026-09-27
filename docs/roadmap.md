@@ -91,10 +91,15 @@ Ordered roughly by how much it unblocks getting to a first real submission.
 ## Phase 2 — after Daybreak Trusted Access is granted
 
 **Status (2026-09-26): started.** The two prerequisites below are built:
-`model verify` (time-limited human attestation), `model budget` (hard local
-request/token cap reserved *before* each paid call), and `workspace analyze`
-(`analysis.py`), the gated, bounded review call that returns unverified
-candidates only. Not yet done: a live smoke test against the real model (needs
+`model verify` (time-limited human attestation, bound to the configured
+model/org/project and refused unless a person is at a terminal), `model budget`
+(hard local request/token cap reserved *before* each paid call, under a
+cross-process lock), and `workspace analyze` (`analysis.py`), the gated,
+bounded review call that returns unverified candidates only. An independent
+three-reviewer security pass found and we fixed: forgeable gate state (now
+anchored outside any checkout), a double-spend race, self-attestation by
+unattended agents, `.git`/secret/untracked-file exposure, and paid-response
+loss paths. Still recommended: a spend limit on the provider-side project. Not yet done: a live smoke test against the real model (needs
 your credentials in your own shell), tuning the review prompt on real code,
 and items 3-4 below. The original reasoning follows.
 

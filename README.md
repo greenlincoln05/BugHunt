@@ -177,14 +177,33 @@ python run_bughunt.py model verify --note "Approval email seen 2026-09-26"   # y
 python run_bughunt.py model budget set --max-requests 5                      # hard local cap, checked before every call
 ```
 
+**Set a spend limit on the OpenAI project itself as well.** Everything below is
+a local circuit breaker against mistakes and runaway agents; it is not a
+security boundary against something that can already run code as you. The
+provider-side limit is the real backstop.
+
+`model verify` and any `model budget set` that grants or raises the budget must
+be run by a person in an interactive terminal and confirmed by typing a phrase;
+they are refused when run by an agent, script, or pipe, so nothing can attest to
+itself or top up its own credits. (Lowering a cap needs no confirmation.) A
+pseudo-terminal can defeat this, which is why the provider-side limit matters.
+
 `model check` can only show that the key and model ID work together; it cannot
 prove approval, so `model verify` is your own time-limited statement, the same
-role `program verify` plays for scope. The budget is a circuit breaker that runs
-*before* the paid call: one request is reserved and saved first (so a crash
-still counts it), and once the cap is used up BugHunt refuses to call, no matter
-who asks. Raising the cap is a deliberate act (`model budget set` again) once
-you've loaded more credits; usage is never reset by it. `model status` shows all
-of this with no secrets.
+role `program verify` plays for scope. It is bound to a hash of the configured
+model, organization, and project, so changing any of them needs a new
+attestation, and it expires (24h by default, 168h at most). The gate state
+(attestation and budget ledger) lives in `~/.bughunt` — or `BUGHUNT_HOME` — never
+the current directory or a checkout, so a cloned repository cannot supply its own,
+and analysis refuses if either file would sit inside the workspace.
+
+The budget is a circuit breaker that runs *before* the paid call: one request is
+reserved and saved first (so a crash still counts it), under an OS file lock so
+two concurrent runs cannot both spend the last request. Once the cap is used up
+BugHunt refuses to call, no matter who asks. Raising the cap is a deliberate act
+(`model budget set` again) once you've loaded more credits; usage is never reset
+by it, and omitting `--max-tokens` keeps an existing token cap (`--no-max-tokens`
+removes it). `model status` shows all of this with no secrets.
 
 Make the first call a cheap smoke test, not a real run:
 
@@ -196,20 +215,24 @@ Every call passes four gates and fails closed at each: a current attestation, a
 free preflight for the exact configured model, remaining budget, and a hard
 input-size cap (`--max-input-bytes`, default 60000; input size is what you pay
 for, so oversize selections are refused rather than silently truncated).
-`--output` is required and must not exist — it's checked *before* any credit is
-spent, and if writing fails after a paid call the result is printed to stderr
-instead of lost. Files must be inside the checkout (no `..`, absolute paths,
-`.git`, or symlink escapes) and UTF-8 text. Requests use `store: false`.
+`--output` is required: it is created exclusively *before* any credit is spent
+(so a collision or unwritable path never costs a paid call), removed if the call
+fails, and if writing fails after a paid call the result is printed to stderr
+instead of lost. Only files that Git tracks in the checkout root can be sent —
+never `.git`, untracked scratch files, symlink escapes, secret-looking names
+(`.env*`, `*.pem`, `id_rsa*`, ...), or a file containing the API key — and they
+must be UTF-8 text. Requests use `store: false`.
 
 The reply is untrusted text, parsed as data and never executed. Each candidate's
-quoted `evidence` is checked verbatim against the file actually sent; one that
-doesn't appear is flagged `verified_in_source: false` (free, and it filters most
-hallucination). That flag means only "the quote exists" — not that the issue is
-real, reachable, in scope, or not already known. Confirm by hand or with a
-regression test before `finding add`. A provider error is reported with only its
-short error code, is never retried automatically, and still counts against the
-local budget. If a call is refused by OpenAI's cybersecurity screening, stop and
-review rather than resubmitting variations.
+quoted `evidence` (at least 20 characters) is checked verbatim against the file
+actually sent, and its `line` must exist; one that fails is flagged
+`verified_in_source: false` (free, and it filters most hallucination). That flag
+means only "the quote exists" — not that the issue is real, reachable, in scope,
+or not already known. Confirm by hand or with a regression test before `finding
+add`. A provider error is reported with only its short error code, is never
+retried automatically, and still counts against the local budget. If a call is
+refused by OpenAI's cybersecurity screening, stop and review rather than
+resubmitting variations.
 
 ### Patch workspace (real regression evidence, still human-confirmed)
 
