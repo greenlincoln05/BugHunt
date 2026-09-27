@@ -6,8 +6,10 @@ https://developers.openai.com/api/reference/overview#authentication
 Access caveat: https://developers.openai.com/api/docs/guides/safety-checks/cybersecurity
 """
 
+from datetime import datetime, timedelta, timezone
 import json
 import os
+from pathlib import Path
 import re
 from http.client import HTTPException
 from urllib.error import HTTPError, URLError
@@ -16,6 +18,8 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 
 MODELS_URL = "https://api.openai.com/v1/models/"
+DEFAULT_ATTESTATION_PATH = Path(".bughunt/model_access.json")
+MIN_ATTESTATION_HOURS, MAX_ATTESTATION_HOURS = 1, 168
 MAX_RESPONSE_BYTES = 64 * 1024
 REQUEST_TIMEOUT_SECONDS = 20
 _MODEL_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,511}\Z")
@@ -157,3 +161,49 @@ def model_readiness(environ=None, check_access=False, opener=None):
     result.update(status="retrievable", http_status=200, model_retrievable=True,
                   message="Metadata for the explicitly configured model was retrieved. No inference access or Trusted Access approval was verified.")
     return result
+
+
+def _write_json_atomic(path, document):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(document, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def record_access_attestation(note, *, valid_hours=24, path=DEFAULT_ATTESTATION_PATH, clock=None):
+    """Record a time-limited human statement that Trusted Access is actually granted.
+
+    ``model check`` can only show that a key/model pair is retrievable; it cannot
+    prove approval, and its own output says so. This attestation is the deliberate
+    human step -- the same role ``program verify`` plays for scope -- and it
+    expires so a revoked or changed approval cannot linger unnoticed. It stores
+    no credentials, only the note and the validity window.
+    """
+    note = note.strip() if isinstance(note, str) else ""
+    if not note:
+        raise ValueError("Attestation note must not be blank")
+    if type(valid_hours) is not int or not MIN_ATTESTATION_HOURS <= valid_hours <= MAX_ATTESTATION_HOURS:
+        raise ValueError(f"valid_hours must be an integer between {MIN_ATTESTATION_HOURS} and {MAX_ATTESTATION_HOURS}")
+    now = clock() if clock is not None else datetime.now(timezone.utc)
+    document = {"schema_version": 1, "note": note, "verified_at": now.isoformat(),
+                "expires_at": (now + timedelta(hours=valid_hours)).isoformat()}
+    _write_json_atomic(path, document)
+    return document
+
+
+def access_attestation_status(path=DEFAULT_ATTESTATION_PATH, clock=None):
+    """Return whether a current human attestation exists; never raises for bad files."""
+    path = Path(path)
+    now = clock() if clock is not None else datetime.now(timezone.utc)
+    if not path.exists():
+        return {"attested": False, "reason": "No access attestation recorded; run `model verify` first."}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        expires_at = datetime.fromisoformat(document["expires_at"])
+        note = document["note"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return {"attested": False, "reason": "Access attestation file is unreadable or invalid; record a new one."}
+    if expires_at.tzinfo is None or expires_at <= now:
+        return {"attested": False, "reason": f"Access attestation expired at {document['expires_at']}; record a new one."}
+    return {"attested": True, "reason": None, "note": note, "expires_at": document["expires_at"]}

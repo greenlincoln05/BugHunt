@@ -19,9 +19,17 @@ def build_parser():
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Initialize the local database")
     commands.add_parser("setup", help="Show account/credential readiness without revealing secrets")
-    model = commands.add_parser("model", help="Check explicit OpenAI model configuration without inference").add_subparsers(dest="action", required=True)
-    model.add_parser("status", help="Local configuration presence only; no network request")
+    model = commands.add_parser("model", help="Check explicit OpenAI model configuration; gate and cap paid calls").add_subparsers(dest="action", required=True)
+    model.add_parser("status", help="Local configuration, attestation, and budget presence; no network request")
     model.add_parser("check", help="Read model metadata; does not prove Trusted Access approval")
+    item = model.add_parser("verify", help="Record your time-limited attestation that Trusted Access is actually granted")
+    item.add_argument("--note", required=True, help="What you checked, e.g. approval email/dashboard and date; no secrets")
+    item.add_argument("--valid-hours", type=int, default=24, help="1-168; the attestation expires so a revoked approval cannot linger")
+    budget_actions = model.add_parser("budget", help="Local hard cap on paid calls, enforced before each one").add_subparsers(dest="budget_action", required=True)
+    budget_actions.add_parser("status")
+    item = budget_actions.add_parser("set", help="Set the absolute caps (usage is kept); raise deliberately when you load more credits")
+    item.add_argument("--max-requests", type=int, required=True)
+    item.add_argument("--max-tokens", type=int, help="Optional cap on API-reported tokens")
     item = commands.add_parser("progress", help="Show first-dollar receipt evidence and next actions")
     item.add_argument("--out", type=Path, help="Also write first_dollar.json and first_dollar.md")
     item.add_argument("--source-db", type=Path, help="Read a live database from another checkout without modifying it; cannot combine with --db")
@@ -55,6 +63,13 @@ def build_parser():
     item.add_argument("--url", required=True, help="https:// Git remote; see a dossier's source_code_assets[].reference")
     item.add_argument("--into", type=Path, required=True, help="Destination directory; must not already exist")
     item.add_argument("--depth", type=int, default=1, help="Shallow-clone depth (1-1000)")
+    item = workspace.add_parser("analyze", help="Gated, bounded model review of chosen files in a local checkout; produces unverified candidates only")
+    item.add_argument("--workspace", type=Path, required=True, help="Existing Git checkout of the program's own declared source; never a live target")
+    item.add_argument("--file", dest="files", action="append", required=True, help="Relative path inside the workspace; repeat for each file (max 20)")
+    item.add_argument("--focus", default="general security review", help="What to look for, e.g. \"authentication and input validation\"")
+    item.add_argument("--max-input-bytes", type=int, default=60000, help="Hard cap on source sent (1000-200000); input size is what you pay for")
+    item.add_argument("--max-output-tokens", type=int, default=4000)
+    item.add_argument("--output", type=Path, required=True, help="Where to save the result (exclusive create) so paid output is never lost")
     program = commands.add_parser("program", help="Import, verify, and shortlist program policies").add_subparsers(dest="action", required=True)
     item = program.add_parser("import")
     item.add_argument("path", type=Path)
@@ -152,8 +167,28 @@ def dispatch(args, store):
     if args.command == "init":
         return {"database": str(store.path.resolve()), "schema_version": SCHEMA_VERSION}
     if args.command == "model":
-        from .model_access import model_readiness
-        return model_readiness(check_access=args.action == "check")
+        from . import budget as spend_budget
+        from .model_access import access_attestation_status, model_readiness, record_access_attestation
+        if args.action == "verify":
+            document = record_access_attestation(args.note, valid_hours=args.valid_hours)
+            with store.transaction():
+                store.audit("model.access_attested", "model", "trusted-access", stamp(app.clock()),
+                            {"expires_at": document["expires_at"]})
+            return {"attested": True, "expires_at": document["expires_at"],
+                    "notice": "This is your attestation, not a check of OpenAI's records; it expires."}
+        if args.action == "budget":
+            if args.budget_action == "set":
+                result = spend_budget.set_budget(args.max_requests, max_tokens=args.max_tokens)
+                with store.transaction():
+                    store.audit("model.budget_set", "model", "budget", stamp(app.clock()),
+                                {"max_requests": args.max_requests, "max_tokens": args.max_tokens})
+                return result
+            return spend_budget.status()
+        result = model_readiness(check_access=args.action == "check")
+        if args.action == "status":
+            result["access_attestation"] = access_attestation_status()
+            result["budget"] = spend_budget.status()
+        return result
     if args.command == "progress":
         from .progress import build_progress, export_progress
         from .storage import read_snapshot
@@ -221,6 +256,30 @@ def dispatch(args, store):
             return result
         from .worker import DiscoveryWorker
         return {"files": DiscoveryWorker(store).export(args.out)}
+    if args.command == "workspace" and args.action == "analyze":
+        from .analysis import analyze_workspace
+        # Checked before any credit is spent: a name collision must not cost a paid call.
+        if args.output.exists():
+            raise ValueError("Output already exists; choose a new path (checked before any credit was spent)")
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        result = analyze_workspace(args.workspace, args.files, focus=args.focus,
+                                   max_input_bytes=args.max_input_bytes, max_output_tokens=args.max_output_tokens)
+        try:
+            with args.output.open("x", encoding="utf-8") as handle:
+                json.dump(result, handle, indent=2, ensure_ascii=False, allow_nan=False)
+                handle.write("\n")
+        except OSError:
+            # The call was already paid for; never lose its result to a write failure.
+            print(json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False), file=sys.stderr)
+            raise
+        with store.transaction():
+            store.audit("analysis.completed", "workspace", str(args.workspace.resolve()), stamp(app.clock()),
+                        {"files": len(result["files_sent"]), "candidates": len(result["candidates"]),
+                         "verified": sum(1 for row in result["candidates"] if row["verified_in_source"]),
+                         "tokens_used": result["tokens_used"], "output": str(args.output.resolve())})
+        return {"output": str(args.output.resolve()), "candidates": len(result["candidates"]),
+                "verified_in_source": sum(1 for row in result["candidates"] if row["verified_in_source"]),
+                "parse_error": result["parse_error"], "budget": result["budget"], "testing_authorized": False}
     if args.command == "workspace":
         from .workspace import clone_source
         result = clone_source(args.url, args.into, depth=args.depth)

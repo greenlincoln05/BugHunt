@@ -26,6 +26,13 @@
   more of the discover -> analyze -> patch -> evidence -> draft chain should
   require less retyping each time — but the final submit stays an explicit human
   action, always, for the reasons above.
+- Paid model calls (`analysis.py`) must keep every gate: current `model verify`
+  attestation, free preflight, `budget.reserve_request` before the call, and the
+  input-size cap. Never add a path that skips or resets the local budget, retries
+  a provider error automatically, or writes the model's output into `findings`,
+  `submissions`, or `payments` — model output is candidate text for human review.
+  Credits running low is a budget limit, not an emergency: it never justifies
+  skipping a gate, a review step, or a scope check.
 - See [docs/roadmap.md](docs/roadmap.md) for the ordered Phase 1 (now) / Phase 2
   (after Daybreak Trusted Access is granted) buildout plan. Keep it current as
   items land or the plan changes, rather than letting it drift from the code.

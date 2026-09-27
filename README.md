@@ -162,6 +162,55 @@ evidence are recorded as supplied; BugHunt does not execute or validate the patc
 For issues without an available source patch, use `--status not_applicable
 --verification "Document why no patch applies and the proposed remediation"`.
 
+### Gated model analysis (Phase 2: spend credits safely)
+
+With OpenAI Trusted Access for a model granted, `workspace analyze` asks that
+model to review files you choose in a local checkout (after `workspace clone`)
+and return **candidate** findings. Set credentials in your own shell — never
+paste them into chat, a file in this repo, or a command line:
+
+```powershell
+$env:OPENAI_API_KEY = "..."            # from your OpenAI project
+$env:BUGHUNT_OPENAI_MODEL = "..."      # the exact model ID shown in your dashboard
+python run_bughunt.py model check      # free metadata GET; proves key + model ID are valid
+python run_bughunt.py model verify --note "Approval email seen 2026-09-26"   # your attestation, expires in 24h
+python run_bughunt.py model budget set --max-requests 5                      # hard local cap, checked before every call
+```
+
+`model check` can only show that the key and model ID work together; it cannot
+prove approval, so `model verify` is your own time-limited statement, the same
+role `program verify` plays for scope. The budget is a circuit breaker that runs
+*before* the paid call: one request is reserved and saved first (so a crash
+still counts it), and once the cap is used up BugHunt refuses to call, no matter
+who asks. Raising the cap is a deliberate act (`model budget set` again) once
+you've loaded more credits; usage is never reset by it. `model status` shows all
+of this with no secrets.
+
+Make the first call a cheap smoke test, not a real run:
+
+```powershell
+python run_bughunt.py workspace analyze --workspace C:\path\to\checkout --file src/one_small_file.py --max-input-bytes 2000 --max-output-tokens 300 --output reports/analysis/smoke.json
+```
+
+Every call passes four gates and fails closed at each: a current attestation, a
+free preflight for the exact configured model, remaining budget, and a hard
+input-size cap (`--max-input-bytes`, default 60000; input size is what you pay
+for, so oversize selections are refused rather than silently truncated).
+`--output` is required and must not exist — it's checked *before* any credit is
+spent, and if writing fails after a paid call the result is printed to stderr
+instead of lost. Files must be inside the checkout (no `..`, absolute paths,
+`.git`, or symlink escapes) and UTF-8 text. Requests use `store: false`.
+
+The reply is untrusted text, parsed as data and never executed. Each candidate's
+quoted `evidence` is checked verbatim against the file actually sent; one that
+doesn't appear is flagged `verified_in_source: false` (free, and it filters most
+hallucination). That flag means only "the quote exists" — not that the issue is
+real, reachable, in scope, or not already known. Confirm by hand or with a
+regression test before `finding add`. A provider error is reported with only its
+short error code, is never retried automatically, and still counts against the
+local budget. If a call is refused by OpenAI's cybersecurity screening, stop and
+review rather than resubmitting variations.
+
 ### Patch workspace (real regression evidence, still human-confirmed)
 
 The end goal for this workflow is open-source-first: pick a program with a

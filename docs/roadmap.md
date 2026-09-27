@@ -90,6 +90,14 @@ Ordered roughly by how much it unblocks getting to a first real submission.
 
 ## Phase 2 — after Daybreak Trusted Access is granted
 
+**Status (2026-09-26): started.** The two prerequisites below are built:
+`model verify` (time-limited human attestation), `model budget` (hard local
+request/token cap reserved *before* each paid call), and `workspace analyze`
+(`analysis.py`), the gated, bounded review call that returns unverified
+candidates only. Not yet done: a live smoke test against the real model (needs
+your credentials in your own shell), tuning the review prompt on real code,
+and items 3-4 below. The original reasoning follows.
+
 Two things need settling first, before any integration work:
 
 - **What "granted" provably looks like.** `model_access.py`'s `model check`

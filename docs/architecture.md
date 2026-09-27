@@ -25,6 +25,8 @@ recording stay explicit, human-run actions regardless of the amount.
 | `patchwork.py` | Runs one chosen command in one chosen local Git workspace and captures real regression/diff evidence; never marks a patch verified itself |
 | `workspace.py` | Bounded, HTTPS-only local clone of a program's own declared source-code asset; never a live target |
 | `triage.py` | Bounded, resumable batch dossier check over discovered candidates; writes a local source-eligible shortlist |
+| `budget.py` | Local hard cap on paid model calls; reserves a request and persists it before the call so it can only trip early |
+| `analysis.py` | Gated, bounded model review of chosen checkout files; attestation + preflight + budget + size gates; returns unverified candidates, never findings |
 
 Records store structured JSON in four related workflow tables and two discovery
 tables (`jobs` and `opportunities`). SQLite foreign keys protect
