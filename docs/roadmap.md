@@ -85,13 +85,18 @@ Ordered roughly by how much it unblocks getting to a first real submission.
    regression command is not independent patch validation. The separate
    submission and payment stages retain their human-run gates.
 
-7. **Research (not build) a HackerOne draft-report push** — HackerOne's API
-   may support creating a report as a *draft* (never sending it) so
-   `submission export`'s bundle could land directly in HackerOne for you to
-   review and click submit on, instead of copy-paste. This needs a broader
-   (read+write) API scope than anything configured today, so it's a real
-   decision point, not a silent addition — I'll bring back what the API
-   actually supports before building anything against it.
+7. **Research a HackerOne draft-report push** — research completed; integration
+   is deferred. The [Hacker API](https://api.hackerone.com/hacker-resources/)
+   separates `POST /hackers/reports`, which **submits** a report immediately,
+   from `POST /hackers/report_intents`, which creates an editable draft intent
+   only when the destination program has enabled Report Assistant. Creating an
+   intent starts HackerOne's assistant pipeline, so it is not a generic,
+   offline draft storage API. The local `submission export` remains the safe
+   default. Revisit a draft-only adapter after a human verifies a real finding,
+   confirms the destination program supports intents, and deliberately grants
+   a write-capable HackerOne token. Keep both `POST /hackers/reports` and
+   `POST /hackers/report_intents/{id}/submit` out of unattended workflows;
+   only the human submits the final report.
 
 8. **Keep the codebase itself reviewed** as it grows — periodic bug sweeps
    like the one that found and fixed 14 issues earlier, on whatever's changed
