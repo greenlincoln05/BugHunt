@@ -15,6 +15,8 @@ from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .scope import validate_source_asset_url
+
 
 _PLATFORMS = {"hackerone", "bugcrowd", "intigriti", "manual"}
 _STATUSES = {"active", "paused", "closed"}
@@ -28,6 +30,7 @@ _OPTIONAL = {
     "payout_min",
     "payout_max",
     "currency",
+    "source_code_assets",
 }
 _SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _AMOUNT = re.compile(r"[0-9]+(?:\.[0-9]+)?\Z")
@@ -131,6 +134,21 @@ def validate_program(data: dict) -> dict:
         "verification_expires_at": expires_at,
         "blocked_reason": blocked_reason,
     }
+    source_assets = data.get("source_code_assets", [])
+    if not isinstance(source_assets, list):
+        raise ValueError("source_code_assets must be a list")
+    result["source_code_assets"] = []
+    seen_source_urls = set()
+    for asset in source_assets:
+        if (not isinstance(asset, dict) or set(asset) != {"url", "eligible_for_bounty", "eligible_for_submission"}
+                or type(asset["eligible_for_bounty"]) is not bool
+                or type(asset["eligible_for_submission"]) is not bool):
+            raise ValueError("source_code_assets entries require an exact URL and boolean bounty/submission eligibility")
+        url = validate_source_asset_url(asset["url"])
+        if url in seen_source_urls or url not in result["scope"]:
+            raise ValueError("source_code_assets URLs must be unique and appear exactly in scope")
+        seen_source_urls.add(url)
+        result["source_code_assets"].append(dict(asset))
     for field in ("payout_min", "payout_max"):
         if field in data:
             value = data[field]
@@ -228,13 +246,17 @@ def rank_programs(
     ranked = []
     seen = set()
     for source in programs:
-        if isinstance(source, dict) and "verification_note" in source:
+        if isinstance(source, dict) and ("verification_note" in source or "source_review" in source):
             fields = dict(source)
-            note = fields.pop("verification_note")
+            note = fields.pop("verification_note", None)
+            source_review = fields.pop("source_review", None)
             if note is not None and not isinstance(note, str):
                 raise ValueError("verification_note must be a string or null")
+            if source_review is not None and not isinstance(source_review, dict):
+                raise ValueError("source_review must be an object or null")
             program = validate_program(fields)
             program["verification_note"] = note
+            program["source_review"] = source_review
         else:
             program = validate_program(source)
         if program["id"] in seen:

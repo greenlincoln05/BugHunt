@@ -14,6 +14,8 @@ def render_submission_markdown(bundle: dict) -> str:
         f"Type: {finding.get('type') or 'Not recorded'}",
         f"Severity: {finding.get('severity') or 'Not recorded'}",
     ]
+    if bundle.get("policy_warning"):
+        lines.extend(("", f"Policy status: {bundle['policy_warning']}"))
     for heading, value in (
         ("Impact", finding.get("impact")),
         ("Steps to reproduce", finding.get("reproduction")),

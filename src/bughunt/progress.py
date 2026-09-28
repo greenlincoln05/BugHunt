@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 from .reports import _atomic_write, _table
-from .scope import check_scope
+from .scope import check_scope, check_source_scope
 from .workflow import stamp, utc_now
 
 
@@ -37,6 +37,14 @@ def build_progress(snapshot, *, now=None, credentials_present=False):
     def action(kind, entity_id, message):
         actions.append({"kind": kind, "entity_id": entity_id, "next_step": message})
 
+    def finding_scope(finding):
+        program = programs.get(finding.get("program_id"), {})
+        if finding.get("target_kind", "http") == "source_code":
+            return check_source_scope(program, finding.get("target"), now=now)
+        if finding.get("target_kind", "http") != "http":
+            return {"allowed": False, "reason": "Unknown finding target kind."}
+        return check_scope(program, finding.get("target"), now=now)
+
     jobs = snapshot.get("jobs", [])
     job = next((row for row in jobs if row.get("id") == "hackerone-discovery"), {})
     last_sync = _time(job.get("last_success_at"))
@@ -55,8 +63,21 @@ def build_progress(snapshot, *, now=None, credentials_present=False):
         action("select_program", None, "Review opportunity list and opportunity dossier; import one current program policy with its scope and advertised bounty terms.")
     for program_id, program in sorted(programs.items()):
         expiry, verified = _time(program.get("verification_expires_at")), _time(program.get("verified_at"))
+        source_assets = program.get("source_code_assets")
+        eligible_sources = ([item["url"] for item in source_assets
+                             if isinstance(item, dict) and isinstance(item.get("url"), str)
+                             and item.get("eligible_for_bounty") is True
+                             and item.get("eligible_for_submission") is True]
+                            if isinstance(source_assets, list) else [])
+        source_ready = any(check_source_scope(program, url, now=now)["allowed"] for url in eligible_sources)
         if program.get("status") != "active" or program.get("blocked_reason"):
             action("program_blocked", program_id, "Resolve the recorded program status or policy block before further work.")
+        elif eligible_sources and not source_ready:
+            action("source_policy_review", program_id,
+                   "Review the current official policy, exclusions, bounty eligibility and open submissions; run program verify-source for the exact repository. This does not permit live testing.")
+        elif source_ready:
+            if not any(row.get("program_id") == program_id for row in findings.values()):
+                action("local_research", program_id, "Review the declared source locally and record only reproducible security findings with evidence.")
         elif (program.get("automation_allowed") is not True or not expiry or not verified
               or verified > now or expiry <= now or expiry <= verified):
             action("policy_review", program_id, "Review current official scope and automation terms, then record verification only if permitted.")
@@ -65,7 +86,7 @@ def build_progress(snapshot, *, now=None, credentials_present=False):
     for finding_id, finding in sorted(findings.items()):
         if any(row.get("finding_id") == finding_id for row in submissions.values()):
             continue
-        decision = check_scope(programs.get(finding.get("program_id"), {}), finding.get("target"), now=now)
+        decision = finding_scope(finding)
         if not decision["allowed"]:
             action("finding_scope_blocked", finding_id, decision["reason"])
         elif finding.get("status") != "confirmed":
@@ -94,7 +115,7 @@ def build_progress(snapshot, *, now=None, credentials_present=False):
             action("review_rejection", submission_id, "Review the rejection and document concrete changes before resubmission.")
         elif status in {"draft", "rejected"}:
             finding = findings.get(submission.get("finding_id"), {})
-            decision = check_scope(programs.get(finding.get("program_id"), {}), finding.get("target"), now=now)
+            decision = finding_scope(finding)
             if not decision["allowed"]:
                 action("submission_scope_blocked", submission_id, decision["reason"])
             elif finding.get("patch_status") not in {"verified", "not_applicable"}:

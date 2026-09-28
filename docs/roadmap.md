@@ -21,10 +21,13 @@ dossiers with source-code-asset detection (`dossier.py`), a batch OSS
 shortlist (`triage.py`), a bounded local clone helper (`workspace.py`), local
 regression-evidence capture (`patchwork.py`), an OpenAI/Daybreak metadata
 preflight with no inference (`model_access.py`), and a next-action tracker
-(`progress.py`). Discovery and source triage now reject explicit program-wide
+(`progress.py`). A separate, expiring `program verify-source` review now lets a
+human record findings against one exact bounty-eligible `SOURCE_CODE` asset;
+the existing HTTP scope gate still requires explicit automation permission and
+excludes declared source repositories from live testing. Discovery and source triage now reject explicit program-wide
 no-cash policy statements even when HackerOne metadata still advertises
 bounties; promotion applies the same check to older saved opportunities. The
-local suite has 280 passing tests at this milestone.
+local suite has 290 passing tests at this milestone.
 
 Gap: everything from "here's a cloned repo" to "here's a real, fixable bug in
 it" currently happens only when an agent session (this one, or another) is
@@ -40,6 +43,10 @@ Ordered roughly by how much it unblocks getting to a first real submission.
    imports one explicitly selected bounty-eligible `SOURCE_CODE` URL into the
    program catalog, using the discovered candidate's identity and human-checked
    payout figures. It does not verify a program or grant testing permission.
+   **`program verify-source`** now records a time-limited human review for that
+   exact repository without granting live-target authorization. One source URL
+   per program can have a current review; broader multi-asset management is a
+   later improvement if needed by a selected program.
 
 2. **`workspace audit-dependencies`** — npm production-lockfile support is
    built and exercised on the current Jitsi Meet clone. It isolates the

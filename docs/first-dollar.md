@@ -69,8 +69,27 @@ program page, advertised bounty, policy exclusions, and permission for the
 intended activity. A dossier does not import or verify a program automatically.
 For a complete dossier with a bounty-eligible `SOURCE_CODE` asset,
 `opportunity promote` imports one exact source URL plus payout figures you
-checked; it leaves the program unverified and testing unauthorized. Unsupported
-asset types remain metadata rather than local URL scope rules.
+checked; it leaves the program unverified and testing unauthorized. The
+selected source carries separate bounty/submission eligibility metadata.
+Unsupported asset types remain metadata rather than local URL scope rules.
+
+To record a finding from that local repository, review the **current** official
+policy, including exclusions and whether the program accepts submissions, then
+attest in your own interactive terminal:
+
+```powershell
+python run_bughunt.py program verify-source PROGRAM_ID --source-url https://github.com/OWNER/REPO --note "Current official policy reviewed on DATE"
+python run_bughunt.py finding add PROGRAM_ID --source-asset --target https://github.com/OWNER/REPO --title "Specific impact" --type authorization --severity low --reproduction-file reports/private-repro.txt --impact "Who can do what without permission"
+```
+
+The source URL must match the declared asset exactly. This review expires after
+24 hours by default and allows **local source bookkeeping only**. It never grants
+live HTTP testing, even for the Git hosting URL. The separate `program verify`
+command requires explicit automation permission for live targets. Source
+finding confirmation, patch briefs, drafting, and official report-ID recording
+recheck the review. Draft/rejected exports also require current review;
+historical submitted reports remain exportable with a policy-staleness warning.
+If submissions close or scope changes, block the program and review again.
 
 ## Record an actual receipt once
 

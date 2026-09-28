@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from .catalog import validate_program
 from .hackerone import policy_explicitly_nonpaying
-from .scope import _parse_rule
-from .workspace import _validate_https_git_url
+from .scope import validate_source_asset_url
 
 
 def _unique_object(pairs):
@@ -27,13 +25,7 @@ def _unique_object(pairs):
 
 
 def _source_url(value):
-    value = _validate_https_git_url(value)
-    parts = urlsplit(value)
-    if (parts.query or parts.fragment
-            or any(part in {"", ".", ".."} for part in parts.path.split("/")[1:])):
-        raise ValueError("Source URL must be a clean HTTPS repository URL without query or fragment")
-    _parse_rule(value)  # The catalog scope engine must be able to match it.
-    return value
+    return validate_source_asset_url(value)
 
 
 def _eligible_source(dossier, source_url):
@@ -74,6 +66,8 @@ def promote(store, opportunity_id, dossier_path: Path, source_url: str,
         "id": candidate["id"], "name": candidate["name"],
         "platform": "hackerone", "program_url": candidate["program_url"],
         "status": "active", "scope": [source_url],
+        "source_code_assets": [{"url": source_url, "eligible_for_bounty": True,
+                                "eligible_for_submission": True}],
         "automation_allowed": False,
         "payout_min": payout_min, "payout_max": payout_max,
         "currency": candidate.get("currency") or "USD",

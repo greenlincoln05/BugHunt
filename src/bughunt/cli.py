@@ -95,6 +95,11 @@ def build_parser():
     item.add_argument("--note", required=True)
     item.add_argument("--automation-allowed", action="store_true", required=True)
     item.add_argument("--valid-hours", type=int, default=24)
+    item = program.add_parser("verify-source", help="Attest current policy for one exact bounty-eligible source repository; no live-testing permission")
+    item.add_argument("id")
+    item.add_argument("--source-url", required=True, help="Exact declared SOURCE_CODE repository URL")
+    item.add_argument("--note", required=True, help="Current official policy, eligibility, exclusions, and open-submission review; no secrets")
+    item.add_argument("--valid-hours", type=int, default=24, help="1-168 hours before another human policy review is required")
     for action, option in (("block", "reason"), ("unblock", "note")):
         item = program.add_parser(action)
         item.add_argument("id")
@@ -111,6 +116,7 @@ def build_parser():
     item = finding.add_parser("add")
     item.add_argument("program_id")
     item.add_argument("--target", required=True)
+    item.add_argument("--source-asset", action="store_true", help="Record a local source-code finding under an exact, currently reviewed source asset")
     item.add_argument("--title", required=True)
     item.add_argument("--type", dest="vulnerability_type", required=True)
     item.add_argument("--severity", choices=["informational", "low", "medium", "high", "critical"], required=True)
@@ -357,6 +363,10 @@ def dispatch(args, store):
             return rank_programs(store.list("programs"), args.min_payout, args.max_payout, args.currency, args.limit)
         if args.action == "verify":
             return app.verify_program(args.id, note=args.note, valid_hours=args.valid_hours, automation_allowed=args.automation_allowed)
+        if args.action == "verify-source":
+            _confirm_human("Attesting current official scope, bounty, exclusions, and open submissions for this exact source asset",
+                           "I REVIEWED SOURCE POLICY")
+            return app.verify_source(args.id, args.source_url, note=args.note, valid_hours=args.valid_hours)
         if args.action == "block":
             return app.block_program(args.id, args.reason)
         return app.unblock_program(args.id, args.note)
@@ -371,7 +381,7 @@ def dispatch(args, store):
             return app.add_finding(args.program_id, target=args.target, title=args.title,
                                    vulnerability_type=args.vulnerability_type, severity=args.severity,
                                    reproduction=args.reproduction_file.read_text(encoding="utf-8"),
-                                   impact=args.impact, cvss_score=args.cvss_score)
+                                   impact=args.impact, cvss_score=args.cvss_score, source_asset=args.source_asset)
         if args.action == "confirm":
             return app.confirm_finding(args.id, args.evidence)
         if args.action == "brief":

@@ -36,6 +36,8 @@ import ipaddress
 import re
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
+from .workspace import _validate_https_git_url
+
 
 _ESCAPE = re.compile(r"%([0-9a-fA-F]{2})")
 _BAD_ESCAPE = re.compile(r"%(?![0-9a-fA-F]{2})")
@@ -211,6 +213,74 @@ def _parse_time(value: object) -> datetime:
     return parsed
 
 
+def validate_source_asset_url(value: object) -> str:
+    """Accept only one canonical HTTPS Git repository URL, never a URL below it."""
+    value = _validate_https_git_url(value)
+    parts = urlsplit(value)
+    if parts.query or parts.fragment or value.endswith("/"):
+        raise ValueError("Source asset must be a clean repository URL without query, fragment, or trailing slash")
+    target = _parse_target(value)
+    if target.url != value:
+        raise ValueError("Source asset URL must use its canonical spelling")
+    return value
+
+
+def check_source_scope(program: dict, source_url: str, now: datetime | None = None) -> dict:
+    """Gate local source finding records only; this never permits live HTTP testing."""
+    try:
+        source_url = validate_source_asset_url(source_url)
+    except ValueError as error:
+        return {"allowed": False, "reason": f"Invalid source asset URL: {error}.", "normalized_url": None}
+
+    def result(allowed: bool, reason: str) -> dict:
+        return {"allowed": allowed, "reason": reason, "normalized_url": source_url}
+
+    if not isinstance(program, dict) or program.get("status") != "active":
+        return result(False, "Program is not active.")
+    if program.get("blocked_reason") not in (None, ""):
+        return result(False, "Program has an unresolved policy block.")
+    assets, scope, excluded = (program.get("source_code_assets"), program.get("scope"),
+                               program.get("excluded_scope"))
+    if not isinstance(assets, list) or not assets or not isinstance(scope, list) or not scope or not isinstance(excluded, list):
+        return result(False, "Source asset and program scope metadata are incomplete.")
+    try:
+        for asset in assets:
+            if (not isinstance(asset, dict) or set(asset) != {"url", "eligible_for_bounty", "eligible_for_submission"}
+                    or type(asset["eligible_for_bounty"]) is not bool
+                    or type(asset["eligible_for_submission"]) is not bool):
+                raise ValueError("Source asset eligibility metadata is invalid")
+            validate_source_asset_url(asset["url"])
+        inclusions = [_parse_rule(entry) for entry in scope]
+        exclusions = [_parse_rule(entry) for entry in excluded]
+    except ValueError as error:
+        return result(False, f"Program scope is invalid: {error}.")
+    asset = next((item for item in assets if item["url"] == source_url), None)
+    if (asset is None or asset["eligible_for_bounty"] is not True
+            or asset["eligible_for_submission"] is not True or source_url not in scope):
+        return result(False, "Source URL is not an exact, bounty-eligible declared source asset.")
+    target = _parse_target(source_url)
+    if any(rule.matches(target, exclusion=True) for rule in exclusions):
+        return result(False, "Source asset matches an explicit scope exclusion.")
+    # Parse every inclusion above to reject malformed policy even though source
+    # records require exact membership, not broad host/path rule matching.
+    review = program.get("source_review")
+    if (not isinstance(review, dict) or review.get("source_url") != source_url
+            or review.get("program_url") != program.get("program_url")
+            or not isinstance(review.get("note"), str) or not review["note"].strip()):
+        return result(False, "Current source policy review is missing or for a different asset/program.")
+    current = now if now is not None else datetime.now(timezone.utc)
+    if not isinstance(current, datetime) or current.tzinfo is None or current.utcoffset() is None:
+        return result(False, "Current time must be timezone-aware.")
+    try:
+        reviewed = _parse_time(review.get("reviewed_at"))
+        expires = _parse_time(review.get("expires_at"))
+    except ValueError as error:
+        return result(False, f"Source policy review is invalid: {error}.")
+    if reviewed > current or expires <= reviewed or current >= expires:
+        return result(False, "Source policy review is future-dated, expired, or has an invalid validity period.")
+    return result(True, "Local source finding records are permitted by the current review; live testing is not authorized.")
+
+
 def check_scope(program: dict, target_url: str, now: datetime | None = None) -> dict:
     """Return ``allowed``, a human-readable ``reason``, and ``normalized_url``.
 
@@ -253,8 +323,20 @@ def check_scope(program: dict, target_url: str, now: datetime | None = None) -> 
     try:
         inclusions = [_parse_rule(entry) for entry in scope]
         exclusions = [_parse_rule(entry) for entry in excluded_scope]
+        source_assets = program.get("source_code_assets", [])
+        if not isinstance(source_assets, list):
+            raise ValueError("Source asset metadata must be a list")
+        source_rules = []
+        for asset in source_assets:
+            if (not isinstance(asset, dict) or set(asset) != {"url", "eligible_for_bounty", "eligible_for_submission"}
+                    or type(asset["eligible_for_bounty"]) is not bool
+                    or type(asset["eligible_for_submission"]) is not bool):
+                raise ValueError("Source asset eligibility metadata is invalid")
+            source_rules.append(_parse_rule(validate_source_asset_url(asset["url"])))
     except ValueError as error:
         return result(False, f"Program scope is invalid: {error}.")
+    if any(rule.matches(target, exclusion=True) for rule in source_rules):
+        return result(False, "Declared source-code asset is for local review, not live HTTP testing.")
     if any(rule.matches(target, exclusion=True) for rule in exclusions):
         return result(False, "Target matches an explicit scope exclusion.")
     if not any(rule.matches(target) for rule in inclusions):

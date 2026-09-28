@@ -110,6 +110,13 @@ class WorkflowTests(unittest.TestCase):
             self.app.record_submission(submission["id"], "ABC")
         self.assertEqual(self.store.get("submissions", submission["id"])["attempts"], 0)
 
+    def test_submitted_archive_exports_after_http_policy_expires(self):
+        submission = self.submitted()
+        self.now += timedelta(hours=25)
+        archive = self.app.submission_bundle(submission["id"])
+        self.assertFalse(archive["policy_review_current"])
+        self.assertIn("Historical record only", archive["policy_warning"])
+
     def test_rejections_require_review_and_stop_after_two_resubmissions(self):
         submission = self.submitted()
         for attempt in range(1, 4):

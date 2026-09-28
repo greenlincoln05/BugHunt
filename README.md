@@ -283,14 +283,37 @@ python run_bughunt.py opportunity promote OPPORTUNITY_ID --dossier reports/dossi
 ```
 
 Promotion is offline, rejects incomplete or mismatched dossiers and existing
-program IDs, and does not authorize testing. The scope record contains only
-the selected source URL. Review the current policy and use `program verify`
-only when its required automated-testing permission is actually documented.
+program IDs, and does not authorize testing. It records the exact selected
+source URL and its bounty/submission eligibility, with no policy review yet.
+Review the current official policy, exclusions, bounty eligibility, and whether
+submissions are open. In your own interactive terminal, attest that review for
+the exact repository:
+
+```powershell
+python run_bughunt.py program verify-source PROGRAM_ID --source-url https://github.com/OWNER/REPO --note "Checked current official policy and source eligibility on DATE"
+```
+
+The review expires after 24 hours by default (`--valid-hours` accepts 1–168).
+It enables local source finding records only. It does **not** authorize live
+HTTP testing, including against the Git hosting URL. `program verify` remains
+the separate, explicit automation-permission gate for live HTTP targets, and
+declared source assets are excluded from that gate even if automation is allowed.
 Then clone the repository you chose:
 
 ```powershell
 python run_bughunt.py workspace clone --url https://github.com/OWNER/REPO --into C:\path\to\checkout --depth 1
 ```
+
+After a real local proof, record a source finding with `finding add --source-asset
+--target https://github.com/OWNER/REPO` and the usual title, type, severity,
+reproduction file, and impact options. The URL must match the declared asset
+exactly; query strings, fragments, and paths under the repository are denied.
+Confirmation, patch briefs, report drafting, draft/rejected export, and
+recording the official report ID recheck the current source review. Historical
+submitted/accepted reports remain exportable after review expiry and carry a
+stale-policy warning. Importing new catalog policy or blocking/unblocking the
+program clears the attestation. One source URL can be under review per program
+at a time; promotion selects one asset. No command submits a report for you.
 
 `workspace clone` accepts only a plain `https://` Git remote with no embedded
 credentials, refuses to overwrite an existing destination, and is bounded by a

@@ -60,6 +60,8 @@ class PromotionTests(unittest.TestCase):
         self.addCleanup(store.close)
         program = store.get("programs", "h1-42")
         self.assertEqual(program["scope"], [SOURCE])
+        self.assertEqual(program["source_code_assets"], [{"url": SOURCE,
+            "eligible_for_bounty": True, "eligible_for_submission": True}])
         self.assertEqual(program["payout_min"], "50")
         self.assertEqual(program["payout_max"], "200")
         self.assertFalse(program["automation_allowed"])

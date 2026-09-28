@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 from .catalog import load_catalog
-from .scope import check_scope
+from .scope import check_scope, check_source_scope
 
 
 def utc_now():
@@ -69,6 +69,7 @@ class Workflow:
                 program["verified_at"] = None
                 program["verification_expires_at"] = None
                 program["verification_note"] = None
+                program["source_review"] = None
                 try:
                     previous = self.store.get("programs", program["id"])
                 except ValueError:
@@ -96,11 +97,35 @@ class Workflow:
             self._audit("program.verified", "programs", program, note=note, expires_at=program["verification_expires_at"])
         return program
 
+    def verify_source(self, program_id, source_url, *, note, valid_hours=24):
+        """Record a human's current policy review for one local source asset only."""
+        note = required(note, "Current source policy review evidence/note")
+        if isinstance(valid_hours, bool) or not isinstance(valid_hours, int) or not 1 <= valid_hours <= 168:
+            raise ValueError("Source review validity must be between 1 and 168 hours")
+        with self.store.transaction():
+            program = self.store.get("programs", program_id)
+            now = self.clock()
+            review = {"source_url": source_url, "program_url": program.get("program_url"),
+                      "reviewed_at": stamp(now), "expires_at": stamp(now + timedelta(hours=valid_hours)),
+                      "note": note}
+            candidate = dict(program, source_review=review)
+            decision = check_source_scope(candidate, source_url, now)
+            if not decision["allowed"]:
+                raise ValueError(f"Source review denied: {decision['reason']}")
+            program["source_review"] = review
+            self.store.save("programs", program)
+            self._audit("program.source_reviewed", "programs", program,
+                        source_url=source_url, program_url=review["program_url"],
+                        note=note, expires_at=review["expires_at"], live_testing_authorized=False)
+        return {"program_id": program_id, "source_url": source_url,
+                "source_review": review, "live_testing_authorized": False}
+
     def block_program(self, program_id, reason):
         reason = required(reason, "Restriction/confidentiality reason")
         with self.store.transaction():
             program = self.store.get("programs", program_id)
-            program.update(blocked_reason=reason, automation_allowed=False, verified_at=None, verification_expires_at=None)
+            program.update(blocked_reason=reason, automation_allowed=False, verified_at=None,
+                           verification_expires_at=None, source_review=None)
             self.store.save("programs", program)
             self._audit("program.blocked", "programs", program, reason=reason)
         return program
@@ -109,7 +134,8 @@ class Workflow:
         note = required(note, "Review note")
         with self.store.transaction():
             program = self.store.get("programs", program_id)
-            program.update(blocked_reason=None, automation_allowed=False, verified_at=None, verification_expires_at=None)
+            program.update(blocked_reason=None, automation_allowed=False, verified_at=None,
+                           verification_expires_at=None, source_review=None)
             self.store.save("programs", program)
             self._audit("program.unblocked", "programs", program, note=note)
         return program
@@ -128,6 +154,18 @@ class Workflow:
             raise ValueError(f"Scope denied: {result['reason']}")
         return program, result["normalized_url"]
 
+    def _require_finding_scope(self, finding):
+        kind = finding.get("target_kind", "http")
+        if kind == "http":
+            return self._require_scope(finding["program_id"], finding["target"])
+        if kind != "source_code":
+            raise ValueError("Unknown finding target kind")
+        program = self.store.get("programs", finding["program_id"])
+        result = check_source_scope(program, finding["target"], self.clock())
+        if not result["allowed"]:
+            raise ValueError(f"Source scope denied: {result['reason']}")
+        return program, result["normalized_url"]
+
     def record_audit(self, program_id, target, note):
         note = required(note, "Audit note")
         with self.store.transaction():
@@ -135,7 +173,8 @@ class Workflow:
             self._audit("target.audited", "programs", program, target=target, note=note)
         return {"program_id": program_id, "target": target, "note": note}
 
-    def add_finding(self, program_id, *, target, title, vulnerability_type, severity, reproduction, impact, cvss_score=None):
+    def add_finding(self, program_id, *, target, title, vulnerability_type, severity, reproduction, impact,
+                    cvss_score=None, source_asset=False):
         if severity not in {"informational", "low", "medium", "high", "critical"}:
             raise ValueError("Unsupported severity")
         if cvss_score is not None:
@@ -150,10 +189,12 @@ class Workflow:
                       title=required(title, "Title"), type=required(vulnerability_type, "Vulnerability type"),
                       severity=severity, reproduction=required(reproduction, "Reproduction steps"),
                       impact=required(impact, "Impact"), cvss_score=cvss_score,
+                      target_kind="source_code" if source_asset else "http",
                       status="unconfirmed", patch_status="not_started", patch_reference=None,
                       verification=None, created_at=stamp(self.clock()), updated_at=stamp(self.clock()))
         with self.store.transaction():
-            _, record["target"] = self._require_scope(program_id, target)
+            record["target"] = target
+            _, record["target"] = self._require_finding_scope(record)
             self.store.save("findings", record)
             self._audit("finding.created", "findings", record)
         return record
@@ -162,7 +203,7 @@ class Workflow:
         evidence = required(evidence, "Confirmation evidence")
         with self.store.transaction():
             finding = self.store.get("findings", finding_id)
-            self._require_scope(finding["program_id"], finding["target"])
+            self._require_finding_scope(finding)
             finding.update(status="confirmed", confirmation_evidence=evidence, updated_at=stamp(self.clock()))
             self.store.save("findings", finding)
             self._audit("finding.confirmed", "findings", finding, evidence=evidence)
@@ -188,7 +229,7 @@ class Workflow:
 
         Building the brief does not audit; call ``record_brief`` once it was delivered."""
         finding = self.store.get("findings", finding_id)
-        program, _ = self._require_scope(finding["program_id"], finding["target"])
+        program, _ = self._require_finding_scope(finding)
         if finding["status"] != "confirmed":
             raise ValueError("Finding must be confirmed before requesting a patch")
         runner = Path(__file__).resolve().parents[2] / "run_bughunt.py"
@@ -211,9 +252,9 @@ class Workflow:
                 "delivery": "Generated locally only; give this brief to the patch author yourself. No agent has been started.",
                 "task": "Write the code fix for this confirmed issue (CVE/bug); Astra authors the patch.",
                 "finding": {k: finding.get(k) for k in ("id", "title", "type", "severity", "cvss_score",
-                            "target", "reproduction", "impact", "confirmation_evidence")},
+                            "target", "target_kind", "reproduction", "impact", "confirmation_evidence")},
                 "program": {k: program.get(k) for k in ("id", "name", "platform", "program_url", "scope", "excluded_scope",
-                            "verification_note", "verified_at", "verification_expires_at")},
+                            "verification_note", "verified_at", "verification_expires_at", "source_review")},
                 "requirements": ["Change only code the program makes available and permits you to modify.",
                                  "Add a regression test that fails before and passes after the fix.",
                                  "Do not test outside the listed scope or against excluded assets.",
@@ -231,6 +272,8 @@ class Workflow:
         finding = self.store.get("findings", finding_id)
         if finding["status"] != "confirmed":
             raise ValueError("Finding must be confirmed before capturing patch evidence")
+        if finding.get("target_kind") == "source_code":
+            self._require_finding_scope(finding)
         return finding
 
     def record_evidence(self, finding_id, evidence):
@@ -244,7 +287,7 @@ class Workflow:
     def draft_submission(self, finding_id):
         with self.store.transaction():
             finding = self.store.get("findings", finding_id)
-            program, _ = self._require_scope(finding["program_id"], finding["target"])
+            program, _ = self._require_finding_scope(finding)
             if finding["status"] != "confirmed":
                 raise ValueError("Finding must be confirmed before drafting a submission")
             if any(s["finding_id"] == finding_id for s in self.store.list("submissions")):
@@ -274,7 +317,7 @@ class Workflow:
             if submission.get("retry_after") and datetime.fromisoformat(submission["retry_after"].replace("Z", "+00:00")) > self.clock():
                 raise ValueError(f"Submission backoff active until {submission['retry_after']}")
             finding = self.store.get("findings", submission["finding_id"])
-            self._require_scope(finding["program_id"], finding["target"])
+            self._require_finding_scope(finding)
             if finding["status"] != "confirmed" or finding["patch_status"] not in {"verified", "not_applicable"}:
                 raise ValueError("Confirmed evidence and a verified patch (or not-applicable rationale) are required")
             now = stamp(self.clock())
@@ -419,6 +462,17 @@ class Workflow:
         submission = self.store.get("submissions", submission_id)
         finding = self.store.get("findings", submission["finding_id"])
         program = self.store.get("programs", finding["program_id"])
+        if finding.get("target_kind", "http") == "source_code":
+            decision = check_source_scope(program, finding["target"], self.clock())
+        elif finding.get("target_kind", "http") == "http":
+            decision = check_scope(program, finding["target"], self.clock())
+        else:
+            raise ValueError("Unknown finding target kind")
+        if submission["status"] in {"draft", "rejected"} and not decision["allowed"]:
+            raise ValueError(f"Scope denied: {decision['reason']}")
         return {"schema_version": 1, "generated_at": stamp(self.clock()),
                 "delivery": "Manual upload through the official program portal; this export does not submit anything.",
+                "policy_review_current": decision["allowed"],
+                "policy_warning": None if decision["allowed"] else (
+                    "Historical record only; current policy review does not permit a new submission: " + decision["reason"]),
                 "program": program, "finding": finding, "submission": submission}
