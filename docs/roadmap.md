@@ -67,11 +67,12 @@ Ordered roughly by how much it unblocks getting to a first real submission.
    evidence` → draft) when directed to a specific one. This is where an
    actual first submission comes from; nothing above replaces doing it.
 
-5. **Tighten submission drafting** — partially completed. `finding patch
+5. **Tighten submission drafting** — completed for local review. `finding patch
    --evidence-file` removes retyping between evidence capture and the patch
-   record, and `submission export --format markdown` renders the confirmed
-   finding as a local report draft. Next: carry proof-of-concept attachments
-   into a private review bundle with minimal manual re-entry.
+   record. `submission export --format markdown` renders the confirmed finding
+   as a local report draft, while `--format zip --attachment FILE` packages that
+   draft, structured details, and explicitly selected proof files into a
+   private review archive. Human review and portal submission remain separate.
 
 6. **`progress` covers the whole funnel** — today it tracks the original
    submission/payment lifecycle. Extend it to show triage → clone → finding →

@@ -147,6 +147,7 @@ python run_bughunt.py finding patch FINDING_ID --status verified --reference fix
 python run_bughunt.py submission draft FINDING_ID
 python run_bughunt.py submission export SUBMISSION_ID --output reports/submission.json
 python run_bughunt.py submission export SUBMISSION_ID --format markdown --output reports/submission.md
+python run_bughunt.py submission export SUBMISSION_ID --format zip --output .bughunt/review.zip --attachment reports/evidence.json --attachment fixes/issue.patch
 ```
 
 `finding brief FINDING_ID [--output brief.json]` writes the patch task for
@@ -363,9 +364,13 @@ while it's still in progress.
 The JSON export includes the program policy, reproduction steps, impact,
 confirmation evidence, patch reference, and submission state. The Markdown
 export turns those finding fields into a report draft for review and copy/paste
-into the official portal. Attach actual patch and proof-of-concept files
-separately. Both formats refuse to overwrite an existing file and never send
-anything. Keep exports with report details out of public Git.
+into the official portal. The ZIP export packages both formats, a SHA-256
+manifest, and only the files explicitly named with repeatable `--attachment`.
+Review each attachment for secrets before choosing it; the archive stays local
+and is not uploaded. ZIP exports accept at most 16 regular files, 25 MiB each
+and 64 MiB total, and reject duplicate filenames. All formats refuse to
+overwrite an existing file or submit anything. Keep exports with report
+details out of public Git.
 
 After submitting through the official portal, record its ID. Record acceptance
 only when the platform acknowledges it:

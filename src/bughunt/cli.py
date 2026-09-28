@@ -149,8 +149,10 @@ def build_parser():
         item.add_argument("id", help="Finding ID for draft, submission ID otherwise")
         if action == "export":
             item.add_argument("--output", type=Path, required=True)
-            item.add_argument("--format", choices=["json", "markdown"], default="json",
-                              help="Local export format (default: json); neither format submits a report")
+            item.add_argument("--format", choices=["json", "markdown", "zip"], default="json",
+                              help="Local export format (default: json); no format submits a report")
+            item.add_argument("--attachment", type=Path, action="append", default=[],
+                              help="File to include in a private --format zip review archive; repeat for each file")
         elif action == "record":
             item.add_argument("--external-id", required=True)
         elif action == "reject":
@@ -432,19 +434,36 @@ def dispatch(args, store):
             return app.draft_submission(args.id)
         if args.action == "export":
             bundle = app.submission_bundle(args.id)
+            if args.attachment and args.format != "zip":
+                raise ValueError("--attachment requires --format zip")
             args.output.parent.mkdir(parents=True, exist_ok=True)
             # Exclusive create avoids overwriting evidence or other local files.
-            with args.output.open("x", encoding="utf-8") as handle:
-                if args.format == "markdown":
-                    from .submission_format import render_submission_markdown
-                    handle.write(render_submission_markdown(bundle))
-                else:
-                    json.dump(bundle, handle, indent=2, ensure_ascii=False, allow_nan=False)
-                    handle.write("\n")
+            if args.format == "zip":
+                from .review_archive import write_review_archive
+                created = False
+                try:
+                    with args.output.open("xb") as handle:
+                        created = True
+                        attachment_count = write_review_archive(handle, bundle, args.attachment)
+                except Exception:
+                    if created:
+                        args.output.unlink(missing_ok=True)
+                    raise
+            else:
+                with args.output.open("x", encoding="utf-8") as handle:
+                    if args.format == "markdown":
+                        from .submission_format import render_submission_markdown
+                        handle.write(render_submission_markdown(bundle))
+                    else:
+                        json.dump(bundle, handle, indent=2, ensure_ascii=False, allow_nan=False)
+                        handle.write("\n")
             with store.transaction():
                 app._audit("submission.exported", "submissions", bundle["submission"],
-                           output=str(args.output.resolve()), format=args.format)
-            return {"output": str(args.output.resolve()), "format": args.format, "submitted": False}
+                           output=str(args.output.resolve()), format=args.format,
+                           attachments=attachment_count if args.format == "zip" else 0)
+            return {"output": str(args.output.resolve()), "format": args.format,
+                    "attachments": attachment_count if args.format == "zip" else 0,
+                    "submitted": False}
         if args.action == "record":
             return app.record_submission(args.id, args.external_id)
         if args.action == "reject":
