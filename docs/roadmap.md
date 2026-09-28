@@ -21,13 +21,15 @@ dossiers with source-code-asset detection (`dossier.py`), a batch OSS
 shortlist (`triage.py`), a bounded local clone helper (`workspace.py`), local
 regression-evidence capture (`patchwork.py`), an OpenAI/Daybreak metadata
 preflight with no inference (`model_access.py`), and a next-action tracker
-(`progress.py`). A separate, expiring `program verify-source` review now lets a
+(`progress.py`). Its local pipeline now separates candidate triage, historical
+clone records, confirmed findings, patch records, captured regression output,
+and local drafts. A separate, expiring `program verify-source` review now lets a
 human record findings against one exact bounty-eligible `SOURCE_CODE` asset;
 the existing HTTP scope gate still requires explicit automation permission and
 excludes declared source repositories from live testing. Discovery and source triage now reject explicit program-wide
 no-cash policy statements even when HackerOne metadata still advertises
-bounties; promotion applies the same check to older saved opportunities. The
-local suite has 290 passing tests at this milestone.
+bounties; promotion applies the same check to older saved opportunities. Run
+`python scripts/test.py` for the current local suite.
 
 Gap: everything from "here's a cloned repo" to "here's a real, fixable bug in
 it" currently happens only when an agent session (this one, or another) is
@@ -74,10 +76,14 @@ Ordered roughly by how much it unblocks getting to a first real submission.
    draft, structured details, and explicitly selected proof files into a
    private review archive. Human review and portal submission remain separate.
 
-6. **`progress` covers the whole funnel** — today it tracks the original
-   submission/payment lifecycle. Extend it to show triage → clone → finding →
-   patch → evidence → draft as one pipeline view, so "what's the next action"
-   answers the OSS-first chain, not just the tail end of it.
+6. **`progress` covers the whole funnel** — completed for the local database.
+   Its `pipeline` view shows triage → clone → finding → patch → evidence → draft
+   per selected source asset or recorded finding, and the next-action queue
+   names the clone and regression-capture steps. Triage batch counts do not
+   identify a specific eligible candidate. Clone and draft-export entries are
+   historical audit events, not proof that their files remain on disk; a passing
+   regression command is not independent patch validation. The separate
+   submission and payment stages retain their human-run gates.
 
 7. **Research (not build) a HackerOne draft-report push** — HackerOne's API
    may support creating a report as a *draft* (never sending it) so

@@ -19,11 +19,25 @@ python run_bughunt.py worker status
 python run_bughunt.py progress --out reports/progress
 ```
 
-`progress` produces a next-action queue from the database: missing credentials,
-stale discovery, policy review, unfinished findings, submission pauses, backoff,
-rejection review, pending triage, and receipt evidence. It does not mutate records
-or contact any service. Credential presence refers only to the current process;
-another terminal or running worker can have different credentials.
+`progress` produces a next-action queue and one local pipeline view from the
+database. The pipeline follows triage → clone → finding → patch → evidence →
+draft for each selected bounty-eligible source asset or recorded finding; the
+queue includes source cloning, local regression capture, submission pauses,
+backoff, rejection review, pending platform triage, and receipt evidence. It
+does not mutate records or contact any service. Credential presence refers only
+to the current process; another terminal or running worker can have different
+credentials.
+
+Triage batch totals are historical and do not establish that any particular
+candidate is eligible. A source track starts only from a program record with an
+explicitly bounty-eligible, submission-eligible source URL. Candidate analysis
+is never promoted into a finding by `progress`. A `workspace.cloned` event says
+only that the clone succeeded when recorded; inspect its path before relying on
+it. A local draft export likewise may have been moved or deleted. The latest
+captured regression command is shown separately from the human patch record:
+an exit code of zero does not prove the patch, scope, or payout. For a verified
+source patch without a passing captured run, `progress` recommends `finding
+evidence` before drafting or submitting; it does not perform that run itself.
 
 If a worker runs from another checkout, read that database directly without
 creating, migrating, or updating it:

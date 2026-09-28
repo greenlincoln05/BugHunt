@@ -14,6 +14,24 @@ from bughunt.storage import Store
 
 
 NOW = datetime(2026, 9, 21, 12, tzinfo=timezone.utc)
+SOURCE = "https://github.com/example/library"
+
+
+def source_snapshot():
+    return {
+        "opportunities": [{"id": "h1-source", "candidate_text": "Unverified model suggestion"}],
+        "programs": [{"id": "source", "platform": "hackerone", "program_url": "https://hackerone.com/source",
+                      "status": "active", "automation_allowed": False, "scope": [SOURCE], "excluded_scope": [],
+                      "source_code_assets": [{"url": SOURCE, "eligible_for_bounty": True,
+                                              "eligible_for_submission": True}], "source_review": None}],
+        "findings": [], "submissions": [], "payments": [], "audit": [],
+        "jobs": [{"id": "hackerone-discovery", "last_success_at": "2026-09-21T11:00:00Z", "status": "idle"}],
+    }
+
+
+def audit(action, entity_type, entity_id, details=None, when="2026-09-21T11:00:00Z"):
+    return {"action": action, "entity_type": entity_type, "entity_id": entity_id,
+            "created_at": when, "details": details or {}}
 
 
 def snapshot(amount="1.00", currency="USD"):
@@ -41,6 +59,134 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(result["received_with_references"], {})
         self.assertEqual([row["kind"] for row in result["next_actions"]],
                          ["credentials", "discovery_stale", "select_program"])
+
+    def test_pipeline_requires_records_at_each_source_stage(self):
+        data = source_snapshot()
+        data["programs"] = []
+        result = self.progress(data)
+        self.assertEqual(result["pipeline"]["tracks"], [])
+        self.assertEqual(result["pipeline"]["triage"]["opportunities_recorded"], 1)
+        self.assertIn("triage", result["next_actions"][-1]["next_step"])
+        data["programs"] = source_snapshot()["programs"]
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertEqual(track["stages"]["triage"], "program_recorded")
+        self.assertEqual(track["stages"]["finding"], "not_recorded")
+        self.assertIsNone(track["next_stage"])
+        self.assertFalse(track["source_policy_current"])
+
+        data["programs"][0]["source_review"] = {
+            "source_url": SOURCE, "program_url": "https://hackerone.com/source", "note": "Current policy checked",
+            "reviewed_at": "2026-09-21T11:00:00Z", "expires_at": "2026-09-22T11:00:00Z"}
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertEqual(track["next_stage"], "clone")
+        self.assertEqual(track["stages"]["clone"], "not_recorded")
+        data["audit"].append(audit("workspace.cloned", "workspace", "C:/old/clone", {"url": SOURCE}))
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertEqual(track["stages"]["clone"], "historical_clone_recorded")
+        self.assertEqual(track["recorded_clone_path"], "C:/old/clone")
+        self.assertEqual(track["next_stage"], "finding")
+
+        data["findings"].append({"id": "f-source", "program_id": "source", "target_kind": "source_code",
+                                 "target": SOURCE, "status": "unconfirmed", "patch_status": "not_started"})
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertEqual(track["stages"]["finding"], "unconfirmed_recorded")
+        self.assertEqual(track["next_stage"], "finding")
+        data["findings"][0].update(status="confirmed", confirmation_evidence="Actual local proof")
+        self.assertEqual(self.progress(data)["pipeline"]["tracks"][0]["next_stage"], "patch")
+        data["findings"][0].update(patch_status="verified", patch_reference="fix.patch",
+                                   verification="Human-reviewed regression output")
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertEqual(track["stages"]["patch"], "verified_recorded")
+        self.assertEqual(track["stages"]["evidence"], "manual_verification_only")
+        self.assertEqual(track["next_stage"], "evidence")
+        self.assertIn("capture_evidence", [row["kind"] for row in self.progress(data)["next_actions"]])
+
+        data["audit"].append(audit("patch.evidence_captured", "findings", "f-source",
+                                   {"passed": False, "exit_code": 1, "timed_out": False}))
+        self.assertEqual(self.progress(data)["pipeline"]["tracks"][0]["stages"]["evidence"],
+                         "nonpassing_command_recorded")
+        data["audit"].append(audit("patch.evidence_captured", "findings", "f-source",
+                                   {"passed": True, "exit_code": 0, "timed_out": False}))
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertEqual(track["stages"]["evidence"], "passing_command_recorded")
+        self.assertEqual(track["next_stage"], "draft")
+        data["submissions"].append({"id": "s-source", "finding_id": "f-source", "status": "draft"})
+        self.assertEqual(self.progress(data)["pipeline"]["tracks"][0]["stages"]["draft"], "draft_recorded")
+        data["audit"].append(audit("submission.exported", "submissions", "s-source",
+                                   {"output": "C:/old/report.zip"}))
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertEqual(track["stages"]["draft"], "historical_export_recorded")
+        self.assertEqual(track["next_stage"], "draft")
+        data["audit"].append(audit("patch.evidence_captured", "findings", "f-source",
+                                   {"passed": False, "exit_code": 1, "timed_out": False}))
+        result = self.progress(data)
+        self.assertEqual(result["pipeline"]["tracks"][0]["next_stage"], "evidence")
+        self.assertIn("capture_evidence", [row["kind"] for row in result["next_actions"]])
+        self.assertNotIn("submit_report", [row["kind"] for row in result["next_actions"]])
+        self.assertFalse(result["milestone"]["receipt_recorded"])
+
+    def test_pipeline_does_not_mix_attachments_other_assets_or_future_events(self):
+        data = source_snapshot()
+        data["programs"][0]["source_review"] = {
+            "source_url": SOURCE, "program_url": "https://hackerone.com/source", "note": "Current policy checked",
+            "reviewed_at": "2026-09-21T11:00:00Z", "expires_at": "2026-09-22T11:00:00Z"}
+        other = "https://github.com/example/other"
+        data["programs"][0]["scope"].append(other)
+        data["programs"][0]["source_code_assets"].append(
+            {"url": other, "eligible_for_bounty": True, "eligible_for_submission": True})
+        data["audit"] = [
+            audit("workspace.cloned", "workspace", "C:/other", {"url": other}),
+            audit("workspace.cloned", "workspace", "C:/future", {"url": SOURCE}, "2026-09-22T11:00:00Z"),
+            audit("opportunity.triaged", "opportunities", "batch", {"attempted": 2, "source_eligible": 1}),
+        ]
+        data["findings"].append({"id": "other-finding", "program_id": "source", "target_kind": "source_code",
+                                 "target": other, "status": "confirmed", "patch_status": "verified"})
+        result = self.progress(data)
+        tracks = {row["target"]: row for row in result["pipeline"]["tracks"]}
+        self.assertEqual(tracks[SOURCE]["stages"]["clone"], "not_recorded")
+        self.assertEqual(tracks[SOURCE]["next_stage"], "clone")
+        self.assertEqual(tracks[other]["stages"]["clone"], "historical_clone_recorded")
+        self.assertFalse(tracks[other]["source_policy_current"])
+        self.assertIsNone(tracks[other]["next_stage"])
+        self.assertEqual(result["pipeline"]["triage"]["batch_runs_recorded"], 1)
+        self.assertEqual(result["pipeline"]["triage"]["last_batch_attempted"], 2)
+        self.assertEqual(result["pipeline"]["triage"]["last_recorded_shortlist_size"], 1)
+        self.assertIn("local_research", [row["kind"] for row in result["next_actions"]])
+
+    def test_pipeline_uses_latest_submission_and_does_not_invent_missing_evidence(self):
+        data = source_snapshot()
+        data["programs"][0]["source_review"] = {
+            "source_url": SOURCE, "program_url": "https://hackerone.com/source", "note": "Current policy checked",
+            "reviewed_at": "2026-09-21T11:00:00Z", "expires_at": "2026-09-22T11:00:00Z"}
+        finding = {"id": "f", "program_id": "source", "target_kind": "source_code", "target": SOURCE,
+                   "status": "confirmed", "patch_status": "verified", "patch_reference": "fix.patch"}
+        data["findings"] = [finding]
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertEqual(track["stages"]["finding"], "confirmation_evidence_missing")
+        self.assertEqual(track["stages"]["patch"], "verification_evidence_missing")
+        self.assertEqual(track["next_stage"], "finding")
+        self.assertIn("confirm_finding", [row["kind"] for row in self.progress(data)["next_actions"]])
+        finding["confirmation_evidence"] = "Local proof"
+        self.assertEqual(self.progress(data)["pipeline"]["tracks"][0]["next_stage"], "patch")
+        finding["verification"] = "Human-reviewed regression"
+        data["audit"].append(audit("patch.evidence_captured", "findings", "f",
+                                   {"passed": True, "exit_code": 0, "timed_out": False}))
+        data["submissions"] = [
+            {"id": "old", "finding_id": "f", "status": "rejected", "created_at": "2026-09-20T10:00:00Z"},
+            {"id": "new", "finding_id": "f", "status": "draft", "created_at": "2026-09-21T10:00:00Z"},
+        ]
+        data["audit"].append(audit("submission.exported", "submissions", "old", {"output": "C:/old.zip"}))
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertEqual(track["submission_id"], "new")
+        self.assertEqual(track["stages"]["draft"], "draft_recorded")
+        self.assertIn("Export", track["next_step"])
+        data["submissions"][1].update(status="submitted", external_id="OFFICIAL-1",
+                                      submitted_at="2026-09-21T11:30:00Z")
+        data["programs"][0]["source_review"]["expires_at"] = "2026-09-21T11:30:00Z"
+        track = self.progress(data)["pipeline"]["tracks"][0]
+        self.assertFalse(track["source_policy_current"])
+        self.assertIsNone(track["next_stage"])
+        self.assertIn("official triage", track["next_step"])
 
     def test_recent_worker_sync_does_not_require_token_in_reporter_process(self):
         result = build_progress(snapshot(), now=NOW, credentials_present=False)
